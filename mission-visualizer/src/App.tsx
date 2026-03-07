@@ -1,14 +1,35 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Scoreboard } from './components/Scoreboard';
 import { DeltaVBudget } from './components/DeltaVBudget';
 import { SolarSystemView } from './components/SolarSystemView';
 import { Timeline } from './components/Timeline';
 import { useMissionData } from './hooks/useMissionData';
 import sampleMission from './data/sampleMission.json';
+import generatedMission from './data/generatedMission.json';
 import './index.css';
 
 function App() {
-  const { mission, isLoading, error } = useMissionData(sampleMission);
+  // Use generated mission if available, otherwise fall back to sample
+  const missionData = useMemo(() => {
+    // Check URL params for mission selection
+    const params = new URLSearchParams(window.location.search);
+    const missionParam = params.get('mission');
+
+    if (missionParam === 'sample') {
+      return sampleMission;
+    }
+    if (missionParam === 'generated') {
+      return generatedMission;
+    }
+
+    // Default: use generated if it has valid data, otherwise sample
+    if (generatedMission && generatedMission.mission_name) {
+      return generatedMission;
+    }
+    return sampleMission;
+  }, []);
+
+  const { mission, isLoading, error } = useMissionData(missionData);
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showOuterPlanets, setShowOuterPlanets] = useState(false);
@@ -91,8 +112,6 @@ function App() {
         <div className="lg:col-span-3 space-y-4">
           <SolarSystemView
             mission={mission}
-            width={800}
-            height={600}
             showOuterPlanets={showOuterPlanets}
             currentTime={currentTime}
           />

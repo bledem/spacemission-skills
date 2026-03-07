@@ -8,11 +8,13 @@ interface DeltaVBudgetProps {
 }
 
 const phaseColors: Record<string, string> = {
-  earth_departure: 'bg-phase-departure',
-  flyby: 'bg-phase-flyby',
-  return_departure: 'bg-phase-return',
-  earth_arrival: 'bg-phase-arrival',
+  earth_departure: '#3B82F6',
+  flyby: '#EF4444',
+  return_departure: '#22C55E',
+  earth_arrival: '#3B82F6',
 };
+
+const remainingColor = '#4B5563';
 
 export function DeltaVBudget({ phases, totalDeltaV, budget = 12 }: DeltaVBudgetProps) {
   const [hoveredPhase, setHoveredPhase] = useState<string | null>(null);
@@ -24,10 +26,10 @@ export function DeltaVBudget({ phases, totalDeltaV, budget = 12 }: DeltaVBudgetP
       name: phase.phase,
       value: phase.delta_v_km_s,
       percentage: (phase.delta_v_km_s / budget) * 100,
-      color: phaseColors[phase.phase] || 'bg-gray-500',
+      color: phaseColors[phase.phase] || '#6B7280',
     })),
     ...(remaining > 0
-      ? [{ name: 'Remaining', value: remaining, percentage: (remaining / budget) * 100, color: 'bg-gray-600' }]
+      ? [{ name: 'Remaining', value: remaining, percentage: (remaining / budget) * 100, color: remainingColor }]
       : []),
   ];
 
@@ -43,8 +45,8 @@ export function DeltaVBudget({ phases, totalDeltaV, budget = 12 }: DeltaVBudgetP
         {segments.map((segment, index) => (
           <li
             key={index}
-            className={`${segment.color} transition-opacity hover:opacity-80 relative`}
-            style={{ width: `${segment.percentage}%` }}
+            className="transition-opacity hover:opacity-80 relative"
+            style={{ width: `${segment.percentage}%`, backgroundColor: segment.color }}
             onMouseEnter={() => setHoveredPhase(segment.name)}
             onMouseLeave={() => setHoveredPhase(null)}
             aria-label={`${segment.name}: ${segment.value.toFixed(2)} km/s`}

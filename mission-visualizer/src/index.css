@@ -1,5 +1,30 @@
 @import "tailwindcss";
 
+@theme {
+  --color-space-bg: #0a0a0f;
+  --color-space-orbit: rgba(255, 255, 255, 0.15);
+  --color-space-sun: #FDB813;
+  --color-space-earth: #6B93D6;
+  --color-space-mars: #C1440E;
+  --color-space-venus: #FFC649;
+  --color-space-mercury: #B7B8B9;
+  --color-space-jupiter: #D8CA9D;
+  --color-space-saturn: #F4D59E;
+  --color-space-uranus: #D1E7E7;
+  --color-space-neptune: #5B5DDF;
+
+  --color-phase-departure: #3B82F6;
+  --color-phase-transfer: #F97316;
+  --color-phase-flyby: #EF4444;
+  --color-phase-return: #22C55E;
+  --color-phase-arrival: #3B82F6;
+
+  --color-tier-bronze: #CD7F32;
+  --color-tier-silver: #C0C0C0;
+  --color-tier-gold: #FFD700;
+  --color-tier-platinum: #E5E4E2;
+}
+
 :root {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   line-height: 1.5;
