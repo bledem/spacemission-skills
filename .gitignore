@@ -25,6 +25,7 @@ Thumbs.db
 
 # Harbor / Docker
 /logs/
+/jobs/
 *.log
 
 # Testing artifacts

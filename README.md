@@ -138,6 +138,63 @@ The verifier checks 6 constraints (delta-v budget, duration, Earth return, flyby
 | Gold | 4.0–6.0 AU | 0.67–1.0 |
 | Platinum | > 6.0 AU | 1.0–2.0 |
 
+## Custom LLM Agent (Claude)
+
+The `agent/` directory contains a custom Harbor-compatible external agent powered by Anthropic Claude. It implements Harbor's `BaseAgent` interface and uses Claude's tool-use capability to autonomously solve tasks inside the container environment.
+
+### Architecture
+
+The agent follows a simple agentic loop:
+
+1. Claude receives the task instruction as the initial user message
+2. Claude reasons about the task and requests bash commands via tool use
+3. The agent executes each command in the container via `environment.exec()`
+4. Command output (stdout, stderr, exit code) is fed back to Claude
+5. Repeat until Claude stops requesting tools or hits the 30-turn limit
+
+```
+agent/
+├── __init__.py
+└── claude_agent.py    # BaseAgent implementation
+```
+
+### Configuration
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| Max turns | 30 | Maximum agentic loop iterations |
+| Command timeout | 120s | Per-command execution timeout |
+| Max output | 15,000 chars | Long outputs are truncated to stay within context |
+| Default model | `claude-sonnet-4-20250514` | Overridable via `-m` flag |
+
+### Environment
+
+The agent requires `ANTHROPIC_API_KEY` to be set. Store it in `.env.local`:
+
+```bash
+# .env.local
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+### Running
+
+```bash
+# Activate the virtualenv with harbor installed
+workon skillathon
+
+# Run the custom agent against the task
+PYTHONPATH=. ANTHROPIC_API_KEY=$(grep ANTHROPIC_API_KEY .env.local | cut -d= -f2) \
+  harbor run -p task/ \
+    --agent-import-path agent.claude_agent:ClaudeAgent \
+    -m anthropic/claude-sonnet-4-20250514
+```
+
+### Dependencies
+
+- `harbor` (v0.1.45+) — evaluation framework
+- `anthropic` (v0.84+) — Claude API client
+- Docker — container runtime for task environments
+
 ## Creating Agent Skills
 
 [Agent Skills](https://blog.serghei.pl/posts/agent-skills-101/) are portable, version-controlled folders of procedural knowledge that teach AI agents how to perform specific tasks. They follow an [open standard](https://agentskills.io/) supported by 20+ platforms (Claude Code, Copilot, Cursor, Gemini CLI, Codex, etc.).
