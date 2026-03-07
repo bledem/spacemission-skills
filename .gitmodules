@@ -1,0 +1,3 @@
+[submodule "SpacecraftSimulator"]
+	path = SpacecraftSimulator
+	url = https://github.com/AlessioNegri/SpacecraftSimulator.git
