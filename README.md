@@ -195,6 +195,68 @@ PYTHONPATH=. ANTHROPIC_API_KEY=$(grep ANTHROPIC_API_KEY .env.local | cut -d= -f2
 - `anthropic` (v0.84+) — Claude API client
 - Docker — container runtime for task environments
 
+## E2E Scripts
+
+Two scripts automate the full pipeline from mission generation to visualization.
+
+### `run-mission-e2e.sh` — Standalone Solver + Visualizer
+
+Runs an inline Python Lambert solver (no agent, no Docker, no Harbor) to generate a mission plan, then launches the visualizer. Useful for quick iteration on the visualizer itself or for demos when you don't want to wait for an agent run.
+
+Pipeline: Python Lambert solver → verify constraints → copy JSON → build visualizer → serve
+
+```bash
+# Generate a mission with the built-in Lambert solver and visualize it
+./run-mission-e2e.sh
+
+# Use the hardcoded sample mission instead of solving
+./run-mission-e2e.sh --sample
+
+# Auto-open browser
+./run-mission-e2e.sh --open
+```
+
+Requires: Python 3.9+, `spacecraft_sim` package (auto-installed from `task/environment/setup/`), Node.js + npm.
+
+Does NOT require: Harbor, Docker, Anthropic API key.
+
+### `run-agent-visualize.sh` — Agent (Harbor) + Visualizer
+
+Runs the `ClaudeAgent` via Harbor inside Docker, extracts the mission plan artifact from the container, converts it to the visualizer format, and serves the result. This is the full end-to-end pipeline that exercises the actual agent and skill.
+
+Pipeline: Harbor agent run (Docker) → extract `/app/mission_plan.json` artifact → convert format → build visualizer → serve
+
+The key difference from `run-mission-e2e.sh`: this uses Harbor's `--artifact` flag to pull `/app/mission_plan.json` out of the Docker container before it's deleted. Previous runs lost this file because Harbor deletes containers after completion.
+
+```bash
+# Full pipeline: run agent, extract plan, visualize
+./run-agent-visualize.sh
+
+# With custom job name and auto-open browser
+./run-agent-visualize.sh --job-name=my-run --open
+
+# Skip the agent run, visualize the latest existing job's artifacts
+./run-agent-visualize.sh --skip-agent
+
+# Use a different model
+./run-agent-visualize.sh --model=anthropic/claude-sonnet-4-20250514
+
+# Enable Harbor debug logging
+./run-agent-visualize.sh --debug
+```
+
+Requires: `workon skillathon` virtualenv with `harbor` + `anthropic`, Docker running, `ANTHROPIC_API_KEY` in `.env.local`, Node.js + npm.
+
+| Option | Description |
+|--------|-------------|
+| `--job-name=NAME` | Custom Harbor job name (default: `agent-viz-<timestamp>`) |
+| `--open` | Open browser after starting the visualizer |
+| `--model=MODEL` | Model to use (default: `anthropic/claude-sonnet-4-20250514`) |
+| `--skip-agent` | Skip agent run, use the latest existing job artifacts |
+| `--debug` | Enable Harbor debug logging |
+
+Output is served at `http://localhost:4173/?mission=generated`.
+
 ## Creating Agent Skills
 
 [Agent Skills](https://blog.serghei.pl/posts/agent-skills-101/) are portable, version-controlled folders of procedural knowledge that teach AI agents how to perform specific tasks. They follow an [open standard](https://agentskills.io/) supported by 20+ platforms (Claude Code, Copilot, Cursor, Gemini CLI, Codex, etc.).
