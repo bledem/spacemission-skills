@@ -17,6 +17,24 @@
 
 Built on the momentum of [SkillsBench](https://arxiv.org/abs/your-link) (the largest benchmark for agent skills) and [Sundial](https://sundial.so) (the largest registry and toolbox for building skills), Skillathon brings builders together to craft quality skills and tasks to evaluate them.
 
+## spacecraft_sim Package
+
+The `task/environment/setup/spacecraft_sim/` directory contains an extracted orbital mechanics engine from [SpacecraftSimulator](https://github.com/) (Alessio Negri, LGPL v3). It provides headless, GUI-free computation for the Deep Space Explorer task.
+
+Modules:
+- `astronomical_data` — Planetary data, gravitational parameters, JPL orbital elements & rates
+- `interplanetary_trajectories` — Ephemeris (Alg 8.1), Lambert transfers (Alg 8.2), departures, arrivals, flybys, pork chop data
+- `orbit_determination` — Lambert solver (Alg 5.2), Julian day, coordinate transforms
+- `orbital_maneuvers` — Hohmann, bi-elliptic, propellant mass (Tsiolkovsky)
+- `lagrange_coefficients` — Orbit propagation via universal variable (Alg 3.3, 3.4)
+- `three_dimensional_orbit` — Orbital elements ↔ state vectors (Alg 4.2, 4.5)
+- `two_body_problem` — Orbital parameters, relative motion integration
+- `time_utils` — Time ↔ anomaly conversions (circular, elliptical, parabolic, hyperbolic)
+
+Dependencies: `numpy>=1.24`, `scipy>=1.10`. Python ≥3.9 (no match/case — uses dict lookups).
+
+Reference: "Orbital Mechanics for Engineering Students" — Howard D. Curtis.
+
 ## Project Structure (Harbor Format)
 
 Submissions use the [Harbor task format](https://harborframework.com/docs/tasks):

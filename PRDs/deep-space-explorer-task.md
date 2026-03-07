@@ -387,14 +387,3 @@ Everything in this task is computable with the existing codebase:
 | CPUs | 1 | Sequential computation is sufficient |
 
 ---
-
-## Differentiation from the TDD Task
-
-| Dimension | TDD Task | Deep Space Explorer |
-|-----------|----------|---------------------|
-| What the agent produces | Test code | Mission plan (structured data + code) |
-| Evaluation | Binary bug detection | Continuous distance score |
-| Reasoning type | Spec comprehension + edge case enumeration | Constrained optimization + physics reasoning |
-| Domain knowledge depth | Understand contracts | Apply orbital mechanics to solve a design problem |
-| Creativity | Limited (tests are deterministic) | High (many valid strategies, open-ended optimization) |
-| Verification | Run tests against buggy code | Propagate trajectories, check constraints |
