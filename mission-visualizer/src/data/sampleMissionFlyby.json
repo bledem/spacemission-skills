@@ -1,0 +1,77 @@
+{
+  "mission_name": "Venus Gravity Assist to Outer System",
+  "departure_date": "2026-03-15",
+  "total_delta_v_km_s": 10.8,
+  "max_distance_AU": 5.2,
+  "verification": {
+    "mission_duration_days": 1800,
+    "delta_v_breakdown_km_s": {
+      "earth_departure": 3.2,
+      "venus_flyby": 0.0,
+      "return_departure": 4.5,
+      "earth_arrival": 3.1
+    }
+  },
+  "phases": [
+    {
+      "phase": "earth_departure",
+      "date": "2026-03-15",
+      "delta_v_km_s": 3.2,
+      "orbit": {
+        "a_AU": 0.85,
+        "e": 0.18,
+        "omega_rad": 0,
+        "period_days": 290
+      },
+      "description": "Trans-Venus injection burn"
+    },
+    {
+      "phase": "flyby",
+      "date": "2026-07-20",
+      "delta_v_km_s": 0.0,
+      "planet": "Venus",
+      "flyby_details": {
+        "periapsis_altitude_km": 300,
+        "turn_angle_deg": 45,
+        "incoming_v_inf_km_s": 8.5,
+        "outgoing_v_inf_km_s": 8.5
+      },
+      "orbit": {
+        "a_AU": 2.8,
+        "e": 0.82,
+        "omega_rad": 1.57,
+        "period_days": 1700
+      },
+      "description": "Venus gravity assist"
+    },
+    {
+      "phase": "return_departure",
+      "date": "2028-01-15",
+      "delta_v_km_s": 4.5,
+      "orbit": {
+        "a_AU": 2.6,
+        "e": 0.62,
+        "omega_rad": 4.71,
+        "period_days": 1520
+      },
+      "description": "Outer system departure"
+    },
+    {
+      "phase": "earth_arrival",
+      "date": "2031-03-01",
+      "delta_v_km_s": 3.1,
+      "orbit": null,
+      "description": "Earth capture burn"
+    }
+  ],
+  "flybys": [
+    {
+      "planet": "Venus",
+      "date": "2026-07-20",
+      "periapsis_altitude_km": 300,
+      "turn_angle_deg": 45,
+      "incoming_v_inf_km_s": 8.5,
+      "outgoing_v_inf_km_s": 8.5
+    }
+  ]
+}
