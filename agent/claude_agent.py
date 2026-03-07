@@ -7,12 +7,13 @@ a bash tool, then iterates: think → bash command → observe output → repeat
 
 import os
 import logging
+from pathlib import Path
 
 from anthropic import Anthropic
 from harbor.agents.base import BaseAgent, AgentContext
 from harbor.environments.base import BaseEnvironment
 
-AGENT_VERSION = "0.1.0"
+AGENT_VERSION = "0.2.0"
 MAX_TURNS = 30
 COMMAND_TIMEOUT_SEC = 120
 
@@ -29,6 +30,28 @@ Rules:
 - When you are done, stop calling tools and respond with a short summary.
 - Do NOT ask the user for input. You are fully autonomous.
 """
+
+
+def load_skills() -> str:
+    """Load all SKILL.md files from the agent/skills directory."""
+    skills_dir = Path(__file__).parent / "skills"
+    if not skills_dir.exists():
+        return ""
+
+    skill_texts = []
+    for skill_file in sorted(skills_dir.rglob("SKILL.md")):
+        content = skill_file.read_text().strip()
+        # Strip YAML frontmatter for injection into prompt
+        if content.startswith("---"):
+            end = content.find("---", 3)
+            if end != -1:
+                content = content[end + 3:].strip()
+        skill_texts.append(content)
+
+    if not skill_texts:
+        return ""
+
+    return "\n\n<skills>\n" + "\n\n---\n\n".join(skill_texts) + "\n</skills>"
 
 BASH_TOOL = {
     "name": "bash",
@@ -82,6 +105,10 @@ class ClaudeAgent(BaseAgent):
 
         client = Anthropic(api_key=api_key)
 
+        # Inject loaded skills into the system prompt
+        skill_content = load_skills()
+        system = SYSTEM_PROMPT + skill_content
+
         messages = [{"role": "user", "content": instruction}]
         total_input_tokens = 0
         total_output_tokens = 0
@@ -92,7 +119,7 @@ class ClaudeAgent(BaseAgent):
             response = client.messages.create(
                 model=model,
                 max_tokens=4096,
-                system=SYSTEM_PROMPT,
+                system=system,
                 tools=[BASH_TOOL],
                 messages=messages,
             )
