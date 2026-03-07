@@ -1,15 +1,20 @@
 #!/bin/bash
-# Test script — verifies the agent completed the task.
-# Must produce a reward file at /logs/verifier/reward.txt
+# Verification script for Deep Space Explorer task.
+# Called by Harbor after the agent finishes.
+# Reads /app/mission_plan.json, verifies constraints, writes reward to /logs/verifier/reward.txt.
+
+set -e
 
 mkdir -p /logs/verifier
 
-# Example: run pytest and write reward based on exit code
-# uvx pytest /tests/test.py
+echo "=== Deep Space Explorer Verifier ==="
+echo ""
 
-# Placeholder — replace with your actual verification logic
-if true; then
-  echo 1 > /logs/verifier/reward.txt
-else
-  echo 0 > /logs/verifier/reward.txt
-fi
+# Run the Python verification script
+# test.sh is copied to /tests/ at runtime; verify_mission.py is alongside it
+SCRIPT_DIR="$(dirname "$0")"
+python3 "${SCRIPT_DIR}/verify_mission.py"
+
+# verify_mission.py writes the reward file directly
+echo ""
+echo "=== Verification complete ==="

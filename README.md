@@ -69,3 +69,30 @@ pip install harbor-bench
 harbor run -p "task/" -a "<agent>" -m "<model>"
 ```
 
+### Running the E2E Pipeline (Docker)
+
+You can verify the full oracle → verifier → reward pipeline without Harbor:
+
+```bash
+# 1. Build the environment image
+docker build -t spacecraft-test -f task/environment/Dockerfile task/environment/
+
+# 2. Run oracle + verifier end-to-end
+docker run --rm \
+  -v "$(pwd)/task/solution:/solution" \
+  -v "$(pwd)/task/tests:/tests" \
+  spacecraft-test bash -c '
+    mkdir -p /app /logs/verifier
+    bash /solution/solve.sh
+    bash /tests/test.sh
+    cat /logs/verifier/reward.txt
+  '
+```
+
+This mirrors what Harbor does at runtime:
+1. `solve.sh` runs the oracle, which writes `/app/mission_plan.json`
+2. `test.sh` calls `verify_mission.py`, which validates constraints and computes a score
+3. The reward (0.0–2.0) is written to `/logs/verifier/reward.txt`
+
+The oracle currently exceeds the 12 km/s delta-v budget (the optimization problem is intentionally hard), so it scores 0 — but the pipeline itself runs cleanly end-to-end.
+
