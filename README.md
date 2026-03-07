@@ -96,3 +96,116 @@ This mirrors what Harbor does at runtime:
 
 The oracle currently exceeds the 12 km/s delta-v budget (the optimization problem is intentionally hard), so it scores 0 — but the pipeline itself runs cleanly end-to-end.
 
+### Simulating the Agent E2E
+
+To simulate what an actual agent experiences (reading the prompt, writing code, producing a plan, getting scored):
+
+```bash
+# 1. Build the image
+docker build -t spacecraft-test -f task/environment/Dockerfile task/environment/
+
+# 2. Start an interactive container with the instruction + verifier mounted
+docker run --rm -it \
+  -v "$(pwd)/task/instruction.md:/app/instruction.md:ro" \
+  -v "$(pwd)/task/tests:/tests:ro" \
+  spacecraft-test bash
+
+# Inside the container you now have:
+#   /app/instruction.md   — the task prompt (what the agent reads)
+#   spacecraft_sim         — pre-installed Python package
+#   /tests/test.sh         — verifier (run when done)
+
+# 3. Write your solution (agent or manual) — must produce /app/mission_plan.json
+python3 -c "
+from spacecraft_sim import InterplanetaryTrajectories, CelestialBody
+from datetime import datetime
+r, v = InterplanetaryTrajectories.ephemeris(CelestialBody.MARS, datetime(2028, 9, 15))
+print('Mars position:', r)
+"
+
+# 4. After producing /app/mission_plan.json, run the verifier
+mkdir -p /logs/verifier
+bash /tests/test.sh
+cat /logs/verifier/reward.txt
+```
+
+The verifier checks 6 constraints (delta-v budget, duration, Earth return, flyby altitude, physical validity, parking orbit) and scores based on maximum heliocentric distance achieved.
+
+| Tier | Distance | Reward |
+|------|----------|--------|
+| Bronze | 1.5–2.0 AU | 0.25–0.33 |
+| Silver | 2.0–4.0 AU | 0.33–0.67 |
+| Gold | 4.0–6.0 AU | 0.67–1.0 |
+| Platinum | > 6.0 AU | 1.0–2.0 |
+
+## Creating Agent Skills
+
+[Agent Skills](https://blog.serghei.pl/posts/agent-skills-101/) are portable, version-controlled folders of procedural knowledge that teach AI agents how to perform specific tasks. They follow an [open standard](https://agentskills.io/) supported by 20+ platforms (Claude Code, Copilot, Cursor, Gemini CLI, Codex, etc.).
+
+A skill is a directory containing a `SKILL.md` file with YAML frontmatter (metadata) and a markdown body (instructions).
+
+### Skill Directory Structure
+
+```
+.agents/skills/my-skill/       # Cross-platform location
+  SKILL.md                      # Required: metadata + instructions
+  scripts/                      # Optional: loaded on demand
+  references/                   # Optional: loaded on demand
+  assets/                       # Optional: templates, examples
+```
+
+Platform-specific alternatives: `.claude/skills/`, `.cursor/skills/`, `.github/skills/`, `.kiro/skills/`.
+
+### Minimal SKILL.md
+
+```yaml
+---
+name: orbital-mission-planner
+description: >
+  Use when designing interplanetary trajectories, computing Lambert transfers,
+  or optimizing delta-v budgets using the spacecraft_sim package.
+  Handles ephemeris lookups, gravity assists, and mission constraint validation.
+---
+
+# Orbital Mission Planner
+
+## Workflow
+
+1. Read mission constraints from the task prompt (delta-v budget, duration limit, departure window)
+2. Use `InterplanetaryTrajectories.ephemeris()` to get planetary positions at candidate dates
+3. Solve Lambert problems with `OrbitDetermination.solve_lambert_problem()` for transfer orbits
+4. Compute departure delta-v: `sqrt(v_inf^2 + 2*mu/r_p) - sqrt(mu/r_p)`
+5. Check total delta-v against budget before committing to a trajectory
+6. Write the mission plan JSON to `/app/mission_plan.json`
+
+## Rules
+
+- Always set `OrbitDetermination.set_celestial_body(CelestialBody.SUN)` before solving heliocentric Lambert problems
+- Cast numpy types to Python native types before `json.dump` (numpy bools/floats are not JSON-serializable)
+- Use `InterplanetaryTrajectories.flyby()` directly for gravity assists — the gravity assist path in `optimal_transfer()` is incomplete
+- Apoapsis of a transfer orbit = `a * (1 + e)` from the Lambert solution orbital elements
+```
+
+### Key Principles
+
+- The `description` field is a trigger, not a summary — it tells the agent *when* to activate, not *how* the workflow works. Keep it under 1,024 characters.
+- The body is a procedure, not documentation — write actionable steps, not explanations.
+- Skills use progressive disclosure: metadata loads at startup (~100 tokens), the body loads on activation, referenced files load on demand.
+- Keep the body under 500 lines. Move reference material to `references/` files.
+
+### Installing Community Skills
+
+```bash
+# From the skills.sh registry
+npx skills add <owner>/<skill-name>
+
+# Browse available skills at https://skills.sh
+```
+
+### Further Reading
+
+- [Agent Skills 101](https://blog.serghei.pl/posts/agent-skills-101/) — practical guide to the format
+- [Agent Skills Specification](https://agentskills.io/) — the open standard
+- [Skills Directory](https://www.skillsdirectory.org/) — community skill catalog
+- [Sundial](https://sundial.so) — registry and toolbox for building skills
+
