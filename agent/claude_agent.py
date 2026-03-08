@@ -199,7 +199,7 @@ class ClaudeAgent(BaseAgent):
 
             response = client.messages.create(
                 model=model,
-                max_tokens=4096,
+                max_tokens=16384,
                 system=system,
                 tools=[BASH_TOOL],
                 messages=messages,
