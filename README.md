@@ -246,8 +246,8 @@ agent/
 
 | Parameter | Value | Description |
 |-----------|-------|-------------|
-| Max turns | 30 | Maximum agentic loop iterations |
-| Command timeout | 120s | Per-command execution timeout |
+| Max turns | 15 | Maximum agentic loop iterations |
+| Command timeout | 60s | Per-command execution timeout |
 | Max output | 15,000 chars | Long outputs are truncated to stay within context |
 | Default model | `claude-sonnet-4-20250514` | Overridable via `-m` flag |
 

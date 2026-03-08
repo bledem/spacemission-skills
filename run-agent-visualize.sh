@@ -86,7 +86,7 @@ else
     echo "[1/4] Running ClaudeAgent via Harbor..."
     echo "  Job: $JOB_NAME"
     echo "  Model: $MODEL"
-    echo "  This may take 5-10 minutes..."
+    echo "  This may take 2-3 minutes..."
     echo ""
 
     # Activate virtualenv and run Harbor with artifact extraction

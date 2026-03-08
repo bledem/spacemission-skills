@@ -15,9 +15,9 @@ from anthropic import Anthropic
 from harbor.agents.base import BaseAgent, AgentContext
 from harbor.environments.base import BaseEnvironment
 
-AGENT_VERSION = "0.3.0"
-MAX_TURNS = 30
-COMMAND_TIMEOUT_SEC = 120
+AGENT_VERSION = "0.4.0"
+MAX_TURNS = 15
+COMMAND_TIMEOUT_SEC = 60
 
 SYSTEM_PROMPT = """\
 You are an expert autonomous agent running inside a Linux container.
@@ -25,10 +25,10 @@ You solve tasks by executing bash commands. You have access to a single tool
 called "bash" that runs shell commands in the container.
 
 Rules:
-- Read the task instruction carefully before acting.
-- Break complex problems into small steps.
-- After each command, inspect the output before deciding the next step.
-- If a command fails, diagnose the error and try a different approach.
+- Act immediately. Do NOT plan extensively before writing code.
+- Write a SINGLE complete script on your FIRST tool call, then run it.
+- You have a strict time limit. Every turn without a tool call is wasted.
+- If a command fails, fix and retry quickly — do not re-analyze from scratch.
 - When you are done, stop calling tools and respond with a short summary.
 - Do NOT ask the user for input. You are fully autonomous.
 """
