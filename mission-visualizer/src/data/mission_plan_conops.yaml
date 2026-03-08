@@ -1,0 +1,108 @@
+mission_name: "MarCO-X Deep Space Demo"
+strategy: "direct"
+departure_date: "2028-09-15"
+return_date: "2029-09-15"
+total_delta_v_km_s: 5.8
+max_distance_AU: 1.52
+
+phases:
+  - phase: "launch"
+    date: "2028-09-15"
+    delta_v_km_s: 0.0
+    description: "Vandenberg Launch"
+    orbit:
+      a_AU: 1.0
+      e: 0.016
+      omega_rad: 0.0
+      period_days: 365
+
+  - phase: "early_orbit"
+    date: "2028-09-16"
+    delta_v_km_s: 0.1
+    description: "Detumble and Antenna Deploy"
+    orbit:
+      a_AU: 1.0
+      e: 0.016
+      omega_rad: 0.0
+      period_days: 365
+
+  - phase: "earth_departure"
+    date: "2028-09-20"
+    delta_v_km_s: 3.8
+    from_body: "EARTH"
+    to_body: "MARS"
+    description: "Earth Departure Burn"
+    orbit:
+      a_AU: 1.26
+      e: 0.208
+      omega_rad: 0.0
+      period_days: 516
+
+  - phase: "cruise"
+    date: "2028-12-01"
+    delta_v_km_s: 0.2
+    description: "Trajectory Correction Maneuver (TCM-1)"
+    orbit:
+      a_AU: 1.26
+      e: 0.208
+      omega_rad: 0.0
+      period_days: 516
+
+  - phase: "standby"
+    date: "2029-02-01"
+    delta_v_km_s: 0.0
+    description: "Low-power standby mode approaching Mars"
+    orbit:
+      a_AU: 1.26
+      e: 0.208
+      omega_rad: 0.0
+      period_days: 516
+
+  - phase: "arrival"
+    date: "2029-05-15"
+    delta_v_km_s: 1.5
+    description: "Mars Orbit Insertion (MOI)"
+    orbit:
+      a_AU: 1.52
+      e: 0.093
+      omega_rad: 0.0
+      period_days: 687
+
+  - phase: "main_mission"
+    date: "2029-06-01"
+    delta_v_km_s: 0.1
+    description: "Primary Science Operations"
+    orbit:
+      a_AU: 1.52
+      e: 0.093
+      omega_rad: 0.0
+      period_days: 687
+
+  - phase: "extended_mission"
+    date: "2029-08-01"
+    delta_v_km_s: 0.1
+    description: "Extended Science and Relay Operations"
+    orbit:
+      a_AU: 1.52
+      e: 0.093
+      omega_rad: 0.0
+      period_days: 687
+
+  - phase: "decay"
+    date: "2030-01-01"
+    delta_v_km_s: 0.0
+    description: "End of Life Orbit Decay"
+    orbit:
+      a_AU: 1.52
+      e: 0.093
+      omega_rad: 0.0
+      period_days: 687
+
+verification:
+  total_delta_v_check: true
+  mission_duration_days: 473
+  earth_return_distance_km: 0.0
+  all_constraints_satisfied: true
+  subsystem_checks_passed: true
+
+flybys: []
