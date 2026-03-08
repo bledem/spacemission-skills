@@ -33,8 +33,10 @@ from sim.state import (
     ADCSState,
     ActionType,
     AgentAction,
+    BurnCommand,
     CoastCommand,
     CommsState,
+    EventType,
     HealthStatus,
     MissionPhase,
     MissionState,
@@ -72,12 +74,25 @@ class StateEncoder(json.JSONEncoder):
         return super().default(o)
 
 
+def _sanitize_floats(obj):
+    """Replace inf/nan with None recursively (not valid JSON)."""
+    if isinstance(obj, float):
+        if math.isinf(obj) or math.isnan(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_floats(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_floats(v) for v in obj]
+    return obj
+
+
 def state_to_json(state: UniverseState) -> str:
-    return json.dumps(asdict(state), cls=StateEncoder)
+    return json.dumps(_sanitize_floats(asdict(state)), cls=StateEncoder)
 
 
 def observation_to_json(obs: Observation) -> str:
-    return json.dumps(asdict(obs), cls=StateEncoder)
+    return json.dumps(_sanitize_floats(asdict(obs)), cls=StateEncoder)
 
 
 # ---------------------------------------------------------------------------
@@ -218,8 +233,55 @@ def create_initial_state(
 # WebSocket server
 # ---------------------------------------------------------------------------
 
-async def run_server(port: int = 8765, tick_hz: float = 1.0):
-    """Run the sim server. Pushes state to all connected viewers."""
+def parse_agent_action(raw: str) -> AgentAction | None:
+    """Parse a JSON message into an AgentAction. Returns None on failure."""
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning(f"Invalid JSON from agent: {raw[:200]}")
+        return None
+
+    action_type_str = data.get("type")
+    if not action_type_str:
+        return None
+
+    try:
+        action_type = ActionType(action_type_str)
+    except ValueError:
+        logger.warning(f"Unknown action type: {action_type_str}")
+        return None
+
+    payload_data = data.get("payload")
+    payload = None
+
+    if action_type == ActionType.BURN and payload_data:
+        payload = BurnCommand(
+            direction=tuple(payload_data["direction"]),
+            magnitude_km_s=payload_data["magnitude_km_s"],
+        )
+    elif action_type == ActionType.COAST and payload_data:
+        stop_event = None
+        if payload_data.get("stop_at_event"):
+            try:
+                stop_event = EventType(payload_data["stop_at_event"])
+            except ValueError:
+                pass
+        payload = CoastCommand(
+            duration_s=payload_data.get("duration_s", 90.0),
+            stop_at_event=stop_event,
+        )
+
+    return AgentAction(type=action_type, payload=payload)
+
+
+async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 1.0):
+    """Run the sim server. Pushes state to all connected viewers.
+
+    Args:
+        time_warp: Ratio of sim time to real time. 1.0 = real-time,
+                   60.0 = 1 real second = 1 sim minute,
+                   3600.0 = 1 real second = 1 sim hour.
+    """
     try:
         import websockets
     except ImportError:
@@ -227,46 +289,102 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0):
         return
 
     state, mission, phase = create_initial_state()
-    clients: set = set()
+    latest_obs_json: str | None = None  # cached for agent handshake
+    viewers: set = set()
+    agents: set = set()
+    action_queue: asyncio.Queue[AgentAction] = asyncio.Queue()
     tick_interval = 1.0 / tick_hz
 
     async def handler(ws):
-        clients.add(ws)
-        logger.info(f"Viewer connected ({len(clients)} total)")
+        nonlocal latest_obs_json
+        # First message determines role: {"role": "agent"} or default viewer
+        role = "viewer"
+        viewers.add(ws)
+        logger.info(f"Client connected ({len(viewers)} viewers, {len(agents)} agents)")
+
         try:
-            # Send current state immediately on connect
+            # Send current state immediately (viewers need this)
             await ws.send(state_to_json(state))
-            # Keep connection alive, receive agent actions (future)
-            async for msg in ws:
-                logger.debug(f"Received from client: {msg[:100]}")
+
+            async for raw in ws:
+                # Check for role handshake
+                try:
+                    msg = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+
+                if msg.get("role") == "agent" and role != "agent":
+                    role = "agent"
+                    viewers.discard(ws)
+                    agents.add(ws)
+                    logger.info(f"Client upgraded to agent ({len(viewers)} viewers, {len(agents)} agents)")
+                    # Send latest observation so agent has initial state
+                    if latest_obs_json:
+                        await ws.send(latest_obs_json)
+                    continue
+
+                # Agent action
+                if role == "agent":
+                    action = parse_agent_action(raw)
+                    if action:
+                        await action_queue.put(action)
+                        logger.debug(f"Queued action: {action.type.value}")
         finally:
-            clients.discard(ws)
-            logger.info(f"Viewer disconnected ({len(clients)} total)")
+            viewers.discard(ws)
+            agents.discard(ws)
+            logger.info(f"Client disconnected ({len(viewers)} viewers, {len(agents)} agents)")
 
     async def tick_loop():
-        nonlocal state, mission, phase
+        nonlocal state, mission, phase, latest_obs_json
+        import time as _time
 
-        logger.info(f"Sim tick loop started at {tick_hz} Hz")
+        logger.info(
+            f"Sim tick loop started at {tick_hz} Hz, "
+            f"time warp {time_warp}x (1 real sec = {time_warp} sim sec)"
+        )
+        last_wall = _time.monotonic()
+
         while True:
             await asyncio.sleep(tick_interval)
 
-            # Default action: coast for 1 orbital period / 100 steps
-            # This gives ~90 second chunks for LEO
-            coast_dt = 90.0  # seconds of sim time per tick
+            # Measure real elapsed time → sim time
+            now_wall = _time.monotonic()
+            real_dt = now_wall - last_wall
+            last_wall = now_wall
+            sim_dt = real_dt * time_warp
 
-            action = AgentAction(
-                type=ActionType.COAST,
-                payload=CoastCommand(duration_s=coast_dt),
-            )
+            # Drain queue — use latest agent action, or default coast
+            action = None
+            while not action_queue.empty():
+                try:
+                    action = action_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+
+            if action is None:
+                action = AgentAction(
+                    type=ActionType.COAST,
+                    payload=CoastCommand(duration_s=sim_dt),
+                )
 
             state, obs = step(state, action, mission, phase)
             mission = obs.mission
+            phase = obs.phase
 
-            # Broadcast to all connected viewers
-            msg = state_to_json(state)
-            if clients:
+            # Broadcast UniverseState to viewers
+            state_msg = state_to_json(state)
+            if viewers:
                 await asyncio.gather(
-                    *(client.send(msg) for client in clients),
+                    *(v.send(state_msg) for v in viewers),
+                    return_exceptions=True,
+                )
+
+            # Send Observation to agents (richer: includes mission/phase)
+            obs_msg = observation_to_json(obs)
+            latest_obs_json = obs_msg
+            if agents:
+                await asyncio.gather(
+                    *(a.send(obs_msg) for a in agents),
                     return_exceptions=True,
                 )
 
@@ -294,8 +412,12 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Space Mission Sim Server")
     parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--tick-hz", type=float, default=1.0)
+    parser.add_argument("--tick-hz", type=float, default=10.0)
+    parser.add_argument(
+        "--time-warp", type=float, default=1.0,
+        help="Sim-to-real time ratio. 1=real-time, 100=1s real → 100s sim (default: 1)",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    asyncio.run(run_server(port=args.port, tick_hz=args.tick_hz))
+    asyncio.run(run_server(port=args.port, tick_hz=args.tick_hz, time_warp=args.time_warp))

@@ -51,6 +51,7 @@ G_0 = 9.80665e-3  # km/s² (for Tsiolkovsky in km/s units)
 TRACKED_BODIES = [
     CelestialBody.MERCURY, CelestialBody.VENUS, CelestialBody.EARTH,
     CelestialBody.MARS, CelestialBody.JUPITER, CelestialBody.SATURN,
+    CelestialBody.URANUS, CelestialBody.NEPTUNE,
 ]
 
 
