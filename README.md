@@ -61,12 +61,89 @@ task/
 
 ### Running Locally
 
-```bash
-# Install Harbor
-pip install harbor-bench
+#### Prerequisites
 
-# Run your task with an agent
-harbor run -p "task/" -a "<agent>" -m "<model>"
+- Python 3.9+
+- Docker (running)
+- An Anthropic API key (for the custom Claude agent)
+
+#### Setup
+
+```bash
+# Create and activate a virtualenv (using virtualenvwrapper)
+mkvirtualenv skillathon
+# — or plain venv —
+python3 -m venv ~/.virtualenvs/skillathon
+source ~/.virtualenvs/skillathon/bin/activate
+
+# Install Harbor and the Anthropic SDK
+pip install harbor-bench anthropic
+
+# Store your API key
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env.local
+```
+
+#### Running with the Oracle Agent
+
+The oracle agent runs `task/solution/solve.sh` inside the container. Useful for verifying the task environment builds and the verifier works:
+
+```bash
+workon skillathon
+harbor run -p task/ -a oracle --job-name oracle-test --debug
+```
+
+#### Running with the Custom Claude Agent
+
+```bash
+workon skillathon
+
+# Export env vars and run
+source .env.local 2>/dev/null  # or export ANTHROPIC_API_KEY=...
+PYTHONPATH=. ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+  harbor run -p task/ \
+    --agent-import-path agent.claude_agent:ClaudeAgent \
+    -m anthropic/claude-sonnet-4-20250514 \
+    --job-name my-run \
+    --artifact /app/mission_plan.json \
+    --debug
+```
+
+Key flags:
+
+| Flag | Purpose |
+|------|---------|
+| `--agent-import-path` | Python import path to the custom agent class |
+| `-m` | Model name (Harbor passes it to the agent; prefix with provider e.g. `anthropic/`) |
+| `--job-name` | Name for the job directory under `jobs/` (default: timestamp) |
+| `--artifact` | Path inside the container to extract after the run (repeatable) |
+| `--debug` | Verbose logging |
+| `--no-delete` | Keep the Docker container after the run (useful for debugging) |
+
+#### Reading Results
+
+After a run, Harbor writes results to `jobs/<job-name>/`:
+
+```
+jobs/my-run/
+├── result.json                    # Job-level summary (reward, timing, token usage)
+├── config.json                    # Run configuration
+├── job.log                        # Harbor orchestration log
+└── task__<id>/                    # Trial directory
+    ├── result.json                # Trial result (reward, agent info)
+    ├── trial.log                  # Agent execution log (commands run)
+    ├── config.json                # Trial config
+    ├── artifacts/
+    │   └── mission_plan.json      # Extracted artifact (if --artifact was used)
+    └── verifier/
+        ├── reward.txt             # Numeric reward (0.0–2.0)
+        └── test-stdout.txt        # Verifier output (tier, errors, warnings)
+    
+```
+
+```bash
+# Quick check: reward and tier
+cat jobs/my-run/task__*/verifier/reward.txt
+cat jobs/my-run/task__*/verifier/test-stdout.txt
 ```
 
 ### Running the E2E Pipeline (Docker)
@@ -178,15 +255,17 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ### Running
 
+See [Running Locally](#running-locally) above for full setup and flag reference. Quick version:
+
 ```bash
-# Activate the virtualenv with harbor installed
 workon skillathon
 
-# Run the custom agent against the task
 PYTHONPATH=. ANTHROPIC_API_KEY=$(grep ANTHROPIC_API_KEY .env.local | cut -d= -f2) \
   harbor run -p task/ \
     --agent-import-path agent.claude_agent:ClaudeAgent \
-    -m anthropic/claude-sonnet-4-20250514
+    -m anthropic/claude-sonnet-4-20250514 \
+    --artifact /app/mission_plan.json \
+    --job-name skill-run
 ```
 
 ### Dependencies
