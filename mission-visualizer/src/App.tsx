@@ -127,7 +127,7 @@ function App() {
     () => localStorage.getItem('missionObjective') ?? DEFAULT_OBJECTIVE
   );
   const [currentTime, setCurrentTime] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(() => params.get('autoplay') === '1');
   const [showOuterPlanets, setShowOuterPlanets] = useState(false);
 
   // Animation loop
@@ -269,7 +269,7 @@ function App() {
               showOuterPlanets={showOuterPlanets}
               currentTime={currentTime}
             />
-            {agentActive && (
+            {agentActive && !params.get('mission') && (
               <div className="absolute inset-0 bg-space-bg/70 backdrop-blur-sm rounded-lg flex flex-col items-center justify-center gap-3">
                 <div className="w-8 h-8 border-2 border-blue-400/60 border-t-blue-400 rounded-full animate-spin" />
                 <p className="text-white/60 text-sm font-mono">Agent computing new trajectory…</p>
@@ -277,7 +277,7 @@ function App() {
             )}
           </div>
 
-          {!agentActive && (
+          {(!agentActive || params.get('mission')) && (
             <Timeline
               mission={mission}
               currentTime={currentTime}
@@ -287,7 +287,7 @@ function App() {
             />
           )}
 
-          <MissionLog onAgentActive={setAgentActive} />
+          {!params.get('mission') && <MissionLog onAgentActive={setAgentActive} />}
         </div>
       </div>
     </div>

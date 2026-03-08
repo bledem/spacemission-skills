@@ -274,7 +274,7 @@ phases = [
 total_dv = sum(p["delta_v_km_s"] for p in phases)
 
 plan = {
-    "mission_name": "DRY RUN — Venus Flyby Deep Space Mission",
+    "mission_name": "Deep Space Mission",
     "strategy": "gravity_assist",
     "departure_date": "2028-03-15",
     "return_date": "2033-01-15",
@@ -579,6 +579,10 @@ echo "  Written: src/data/generatedMission.json"
 
 # ── Step 5: Build and launch visualizer ──────────────────────────────────────
 echo "[5/5] Launching mission visualizer..."
+
+# Kill any stale capture server so the visualizer never shows the computing overlay
+lsof -ti:$CAPTURE_PORT 2>/dev/null | xargs kill -9 2>/dev/null || true
+
 cd "$VISUALIZER_DIR"
 
 echo "  Building..."
@@ -592,16 +596,16 @@ echo "=== Mission Visualizer Ready ==="
 echo "  Job: $JOB_NAME  (trial: $TRIAL_NAME)"
 echo "  Reward: $REWARD"
 echo ""
-echo "  http://localhost:4173/?mission=generated"
+echo "  http://localhost:4173/?mission=generated&autoplay=1"
 echo ""
 
 npx vite preview --port 4173 &
 PREVIEW_PID=$!
 sleep 2
 
-open "http://localhost:4173/?mission=generated" 2>/dev/null \
-    || xdg-open "http://localhost:4173/?mission=generated" 2>/dev/null \
-    || echo "  Navigate to: http://localhost:4173/?mission=generated"
+open "http://localhost:4173/?mission=generated&autoplay=1" 2>/dev/null \
+    || xdg-open "http://localhost:4173/?mission=generated&autoplay=1" 2>/dev/null \
+    || echo "  Navigate to: http://localhost:4173/?mission=generated&autoplay=1"
 
 echo ""
 echo "  Press Ctrl+C to stop."
