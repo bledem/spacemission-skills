@@ -68,9 +68,14 @@ def _tail_raw_log() -> None:
                         last_size = f.tell()
                     for line in chunk.decode("utf-8", errors="replace").splitlines():
                         line = line.strip()
-                        # Only forward lines that contain turn progress — the rest
-                        # comes from the richer JSONL source.
-                        if line and "Turn " in line and "/" in line:
+                        if not line:
+                            continue
+                        # Forward turn progress, thinking, execution, and output lines
+                        if ("Turn " in line and "/" in line) or \
+                           "[assistant]" in line or \
+                           "Executing:" in line or \
+                           "Output:" in line or \
+                           "Agent finished" in line:
                             broadcast("log", {"text": line})
         except Exception:
             pass
@@ -108,6 +113,12 @@ def _tail_jsonl() -> None:
                                     thinking.append(text)
                             elif block.get("type") == "tool_use":
                                 cmd = (block.get("input") or {}).get("command", "")
+                                if cmd:
+                                    commands.append(cmd)
+                        # Fallback: extract commands from tool_outputs if response input was empty
+                        if not commands:
+                            for out in entry.get("tool_outputs", []):
+                                cmd = (out.get("command") or "").strip()
                                 if cmd:
                                     commands.append(cmd)
                         tool_results = []

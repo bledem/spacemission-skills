@@ -27,6 +27,7 @@ called "bash" that runs shell commands in the container.
 Rules:
 - Act immediately. Do NOT plan extensively before writing code.
 - Write a SINGLE complete script on your FIRST tool call, then run it.
+- Always use `python3` (not `python`) for all Python commands.
 - You have a strict time limit. Every turn without a tool call is wasted.
 - If a command fails, fix and retry quickly — do not re-analyze from scratch.
 - When you are done, stop calling tools and respond with a short summary.
@@ -91,17 +92,18 @@ class ClaudeAgent(BaseAgent):
 
     def _serialize_content_block(self, block) -> dict:
         """Convert an Anthropic content block to a JSON-serializable dict."""
-        if hasattr(block, "model_dump"):
-            return block.model_dump()
-        if hasattr(block, "text"):
-            return {"type": "text", "text": block.text}
-        if hasattr(block, "input"):
+        # Handle tool_use explicitly: model_dump() can return input:{} on some SDK versions
+        if getattr(block, "type", None) == "tool_use":
             return {
                 "type": "tool_use",
                 "id": getattr(block, "id", None),
                 "name": getattr(block, "name", None),
-                "input": block.input,
+                "input": dict(getattr(block, "input", None) or {}),
             }
+        if hasattr(block, "model_dump"):
+            return block.model_dump()
+        if hasattr(block, "text"):
+            return {"type": "text", "text": block.text}
         return {"type": "unknown", "repr": repr(block)}
 
     def _serialize_messages(self, messages: list) -> list:
@@ -212,10 +214,10 @@ class ClaudeAgent(BaseAgent):
             context.n_input_tokens = total_input_tokens
             context.n_output_tokens = total_output_tokens
 
-            # Log assistant reasoning (text blocks)
+            # Log assistant reasoning (text blocks) — full text, no truncation
             for block in response.content:
                 if hasattr(block, "text") and block.text:
-                    self.logger.info(f"[assistant] {block.text[:500]}")
+                    self.logger.info(f"[assistant] {block.text}")
 
             # Check if the model wants to use tools
             tool_use_blocks = [
@@ -227,7 +229,7 @@ class ClaudeAgent(BaseAgent):
                 final_text = "".join(
                     b.text for b in response.content if hasattr(b, "text")
                 )
-                self.logger.info(f"Agent finished: {final_text[:500]}")
+                self.logger.info(f"Agent finished: {final_text}")
 
                 # Log final turn
                 self._write_conversation_log(

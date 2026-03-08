@@ -63,12 +63,12 @@ const SKILL_STEPS: SkillStep[] = [
 ];
 
 const COLOR: Record<string, Record<string, string>> = {
-  violet:  { border: 'border-violet-500/50',  bg: 'bg-violet-950/40',  text: 'text-violet-300',  badge: 'bg-violet-900/60 text-violet-300',  dot: 'bg-violet-400',  mark: 'bg-violet-500/20 text-violet-200' },
-  cyan:    { border: 'border-cyan-500/50',    bg: 'bg-cyan-950/40',    text: 'text-cyan-300',    badge: 'bg-cyan-900/60 text-cyan-300',    dot: 'bg-cyan-400',    mark: 'bg-cyan-500/20 text-cyan-200' },
-  blue:    { border: 'border-blue-500/50',    bg: 'bg-blue-950/40',    text: 'text-blue-300',    badge: 'bg-blue-900/60 text-blue-300',    dot: 'bg-blue-400',    mark: 'bg-blue-500/20 text-blue-200' },
-  amber:   { border: 'border-amber-500/50',   bg: 'bg-amber-950/40',   text: 'text-amber-300',   badge: 'bg-amber-900/60 text-amber-300',   dot: 'bg-amber-400',   mark: 'bg-amber-500/20 text-amber-200' },
-  emerald: { border: 'border-emerald-500/50', bg: 'bg-emerald-950/40', text: 'text-emerald-300', badge: 'bg-emerald-900/60 text-emerald-300', dot: 'bg-emerald-400', mark: 'bg-emerald-500/20 text-emerald-200' },
-  rose:    { border: 'border-rose-500/50',    bg: 'bg-rose-950/40',    text: 'text-rose-300',    badge: 'bg-rose-900/60 text-rose-300',    dot: 'bg-rose-400',    mark: 'bg-rose-500/20 text-rose-200' },
+  violet:  { border: 'border-violet-400/80',  bg: 'bg-violet-900/50',  text: 'text-violet-200',  badge: 'bg-violet-700/70 text-violet-100',  dot: 'bg-violet-300',  mark: 'bg-violet-500/40 text-violet-100' },
+  cyan:    { border: 'border-cyan-400/80',    bg: 'bg-cyan-900/50',    text: 'text-cyan-200',    badge: 'bg-cyan-700/70 text-cyan-100',    dot: 'bg-cyan-300',    mark: 'bg-cyan-500/40 text-cyan-100' },
+  blue:    { border: 'border-blue-400/80',    bg: 'bg-blue-900/50',    text: 'text-blue-200',    badge: 'bg-blue-700/70 text-blue-100',    dot: 'bg-blue-300',    mark: 'bg-blue-500/40 text-blue-100' },
+  amber:   { border: 'border-amber-400/80',   bg: 'bg-amber-900/50',   text: 'text-amber-200',   badge: 'bg-amber-700/70 text-amber-100',   dot: 'bg-amber-300',   mark: 'bg-amber-500/40 text-amber-100' },
+  emerald: { border: 'border-emerald-400/80', bg: 'bg-emerald-900/50', text: 'text-emerald-200', badge: 'bg-emerald-700/70 text-emerald-100', dot: 'bg-emerald-300', mark: 'bg-emerald-500/40 text-emerald-100' },
+  rose:    { border: 'border-rose-400/80',    bg: 'bg-rose-900/50',    text: 'text-rose-200',    badge: 'bg-rose-700/70 text-rose-100',    dot: 'bg-rose-300',    mark: 'bg-rose-500/40 text-rose-100' },
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -130,7 +130,7 @@ function SkillPanel({ activeStepNums, latestStepNum }: { activeStepNums: Set<num
         const latest = latestStepNum === step.num;
         const c = COLOR[step.color];
         return (
-          <div key={step.num} className={`rounded-lg px-3 py-2 border transition-all duration-300 ${latest ? `${c.border} ${c.bg} shadow-sm` : active ? 'border-white/10 bg-white/5' : 'border-transparent opacity-35'}`}>
+          <div key={step.num} className={`rounded-lg px-3 py-2 border transition-all duration-300 ${latest ? `${c.border} ${c.bg} shadow-sm` : active ? 'border-white/10 bg-white/5' : 'border-white/10 opacity-50'}`}>
             <div className="flex items-center gap-2">
               <span className={`text-[10px] font-bold w-4 shrink-0 ${active ? c.text : 'text-white/30'}`}>{step.num}</span>
               <span className={`text-xs font-semibold leading-tight ${active ? c.text : 'text-white/40'}`}>{step.label}</span>
@@ -147,6 +147,43 @@ function SkillPanel({ activeStepNums, latestStepNum }: { activeStepNums: Set<num
       })}
     </div>
   );
+}
+
+// ── Raw log line ──────────────────────────────────────────────────────────────
+
+function RawLogLine({ text }: { text: string }) {
+  const clean = text.replace(/^.*?(Turn\s+\d|\[assistant\]|Executing:|Output:|Agent finished)/i, '$1');
+
+  if (/Turn\s+\d+\/\d+/i.test(text)) {
+    const m = text.match(/Turn\s+(\d+)\/(\d+)/i);
+    const cur = m ? parseInt(m[1]) : 0;
+    const total = m ? parseInt(m[2]) : 15;
+    const pct = Math.round((cur / total) * 100);
+    return (
+      <div className="flex items-center gap-2 px-2 py-1">
+        <span className="text-white/40 text-[10px] font-mono shrink-0">Turn {cur}/{total}</span>
+        <div className="flex-1 bg-white/10 rounded-full h-1 overflow-hidden">
+          <div className="h-full bg-blue-500/60 transition-all duration-500" style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+    );
+  }
+  if (/\[assistant\]/i.test(text)) {
+    const body = text.replace(/.*?\[assistant\]\s*/i, '');
+    return <p className="text-[11px] text-blue-200/70 font-mono px-2 py-0.5 italic leading-relaxed whitespace-pre-wrap">✦ {body}</p>;
+  }
+  if (/^Executing:/i.test(clean)) {
+    const body = clean.replace(/^Executing:\s*/i, '');
+    return <p className="text-[11px] text-green-300/80 font-mono px-2 py-0.5 whitespace-pre-wrap">$ {body}</p>;
+  }
+  if (/^Output:/i.test(clean)) {
+    const body = clean.replace(/^Output:\s*/i, '');
+    return body ? <p className="text-[11px] text-white/40 font-mono px-2 py-0.5 whitespace-pre-wrap">⟶ {body}</p> : null;
+  }
+  if (/Agent finished/i.test(text)) {
+    return <p className="text-[11px] text-green-400/80 font-mono px-2 py-0.5">✓ {clean}</p>;
+  }
+  return <p className="text-white/20 text-[11px] font-mono px-2">{clean}</p>;
 }
 
 // ── Turn card ─────────────────────────────────────────────────────────────────
@@ -245,8 +282,15 @@ export function MissionLog({ onAgentActive }: MissionLogProps = {}) {
 
       es.addEventListener('log', (e) => {
         const data = JSON.parse((e as MessageEvent).data);
-        if (/Turn\s+\d+\/\d+/.test(data.text)) {
-          setEntries((prev) => [...prev, { type: 'log', text: data.text, timestamp: Date.now() }]);
+        setEntries((prev) => [...prev, { type: 'log', text: data.text, timestamp: Date.now() }]);
+        // Detect skills from real-time [assistant] thinking lines (same source as terminal)
+        if (/\[assistant\]/i.test(data.text)) {
+          const body = data.text.replace(/.*?\[assistant\]\s*/i, '');
+          const steps = detectSteps(body);
+          if (steps.length > 0) {
+            setActiveStepNums((prev) => new Set([...prev, ...steps.map((s) => s.num)]));
+            setLatestStepNum(steps[steps.length - 1].num);
+          }
         }
       });
 
@@ -267,7 +311,11 @@ export function MissionLog({ onAgentActive }: MissionLogProps = {}) {
         setStatus('done');
         onAgentActive?.(false);
         es.close();
-        setTimeout(() => { window.location.href = '/?mission=generated'; }, 2000);
+        // Open the final visualizer on the preview server (port 4173) where
+        // the built mission plan will be served after the script finishes step 5.
+        setTimeout(() => {
+          window.open('http://localhost:4173/?mission=generated', '_blank');
+        }, 3000);
       });
     }
 
@@ -310,7 +358,7 @@ export function MissionLog({ onAgentActive }: MissionLogProps = {}) {
           )}
           {entries.map((entry, i) =>
             entry.type === 'log' ? (
-              <div key={i} className="text-white/30 text-[11px] font-mono px-2">{(entry as RawLogEntry).text}</div>
+              <RawLogLine key={i} text={(entry as RawLogEntry).text} />
             ) : (
               <TurnCard key={i} entry={entry as TurnEntry} />
             )
