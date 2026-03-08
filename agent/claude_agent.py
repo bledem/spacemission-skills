@@ -190,7 +190,22 @@ class ClaudeAgent(BaseAgent):
         log_dir.mkdir(parents=True, exist_ok=True)
         turn_log_path = log_dir / "conversation_turns.jsonl"
 
-        messages = [{"role": "user", "content": instruction}]
+        # Prepend user mission prompt if provided via env var or file
+        user_prompt = os.environ.get("MISSION_PROMPT", "")
+        if not user_prompt:
+            prompt_file = Path(__file__).parent / "prompt.md"
+            if prompt_file.exists():
+                user_prompt = prompt_file.read_text().strip()
+
+        if user_prompt:
+            full_instruction = (
+                f"## User Mission Request\n\n{user_prompt}\n\n"
+                f"---\n\n## Task Reference\n\n{instruction}"
+            )
+        else:
+            full_instruction = instruction
+
+        messages = [{"role": "user", "content": full_instruction}]
         total_input_tokens = 0
         total_output_tokens = 0
 

@@ -38,6 +38,7 @@ OPEN_BROWSER=false
 MODEL="anthropic/claude-sonnet-4-20250514"
 SKIP_AGENT=false
 DEBUG_FLAG=""
+MISSION_PROMPT=""
 
 # Parse args
 for arg in "$@"; do
@@ -51,6 +52,8 @@ for arg in "$@"; do
             ;;
         --job-name=*) JOB_NAME="${arg#*=}" ;;
         --model=*) MODEL="${arg#*=}" ;;
+        --prompt=*) MISSION_PROMPT="${arg#*=}" ;;
+        --prompt-file=*) MISSION_PROMPT="$(cat "${arg#*=}")" ;;
     esac
 done
 
@@ -87,7 +90,7 @@ else
     echo "  Job: $JOB_NAME"
     echo "  Model: $MODEL"
     # Run Harbor dynamically with Anthropic via uvx using Python 3.12
-    PYTHONPATH="$SCRIPT_DIR" uvx --python 3.12 --with anthropic harbor run \
+    MISSION_PROMPT="$MISSION_PROMPT" PYTHONPATH="$SCRIPT_DIR" uvx --python 3.12 --with anthropic harbor run \
         -p "$SCRIPT_DIR/task/" \
         --agent-import-path agent.claude_agent:ClaudeAgent \
         -m "$MODEL" \
