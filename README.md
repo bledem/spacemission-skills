@@ -132,6 +132,9 @@ jobs/my-run/
     ├── result.json                # Trial result (reward, agent info)
     ├── trial.log                  # Agent execution log (commands run)
     ├── config.json                # Trial config
+    ├── agent/
+    │   ├── conversation.json      # Full conversation snapshot (system prompt + all messages)
+    │   └── conversation_turns.jsonl  # Per-turn JSONL log (reasoning, commands, outputs, token usage)
     ├── artifacts/
     │   └── mission_plan.json      # Extracted artifact (if --artifact was used)
     └── verifier/
@@ -139,6 +142,10 @@ jobs/my-run/
         └── test-stdout.txt        # Verifier output (tier, errors, warnings)
     
 ```
+
+The `agent/` directory contains full conversation logs (added in agent v0.3.0):
+- `conversation.json` — complete conversation state overwritten each turn (system prompt, model, all messages with full content, cumulative token counts). Useful for replaying or debugging the full agent session.
+- `conversation_turns.jsonl` — append-only log with one JSON object per turn. Each entry includes the assistant's response blocks (reasoning text + tool calls), tool execution results (full stdout/stderr/exit code), and per-turn token usage.
 
 ```bash
 # Quick check: reward and tier

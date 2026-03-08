@@ -5,15 +5,17 @@ Implements the BaseAgent interface. Claude receives the task instruction and
 a bash tool, then iterates: think → bash command → observe output → repeat.
 """
 
+import json
 import os
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 from anthropic import Anthropic
 from harbor.agents.base import BaseAgent, AgentContext
 from harbor.environments.base import BaseEnvironment
 
-AGENT_VERSION = "0.2.0"
+AGENT_VERSION = "0.3.0"
 MAX_TURNS = 30
 COMMAND_TIMEOUT_SEC = 120
 
@@ -72,6 +74,7 @@ BASH_TOOL = {
 }
 
 
+
 class ClaudeAgent(BaseAgent):
     """External Harbor agent powered by Anthropic Claude."""
 
@@ -85,6 +88,79 @@ class ClaudeAgent(BaseAgent):
     async def setup(self, environment: BaseEnvironment) -> None:
         """No special setup needed — Claude runs externally via API."""
         self.logger.info("ClaudeAgent setup complete (no container-side install needed)")
+
+    def _serialize_content_block(self, block) -> dict:
+        """Convert an Anthropic content block to a JSON-serializable dict."""
+        if hasattr(block, "model_dump"):
+            return block.model_dump()
+        if hasattr(block, "text"):
+            return {"type": "text", "text": block.text}
+        if hasattr(block, "input"):
+            return {
+                "type": "tool_use",
+                "id": getattr(block, "id", None),
+                "name": getattr(block, "name", None),
+                "input": block.input,
+            }
+        return {"type": "unknown", "repr": repr(block)}
+
+    def _serialize_messages(self, messages: list) -> list:
+        """Convert the full messages list to JSON-serializable form."""
+        serialized = []
+        for msg in messages:
+            role = msg["role"]
+            content = msg["content"]
+            if isinstance(content, str):
+                serialized.append({"role": role, "content": content})
+            elif isinstance(content, list):
+                serialized.append({
+                    "role": role,
+                    "content": [
+                        self._serialize_content_block(b) if hasattr(b, "type") and not isinstance(b, dict) else b
+                        for b in content
+                    ],
+                })
+            else:
+                serialized.append({"role": role, "content": str(content)})
+        return serialized
+
+    def _write_conversation_log(self, log_path: Path, turn: int, messages: list,
+                                 response_content: list, usage: dict,
+                                 tool_outputs: list | None = None) -> None:
+        """Append a turn entry to the JSONL conversation log."""
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "turn": turn,
+            "usage": usage,
+            "response": [self._serialize_content_block(b) for b in response_content],
+        }
+        if tool_outputs is not None:
+            entry["tool_outputs"] = tool_outputs
+
+        try:
+            with open(log_path, "a") as f:
+                f.write(json.dumps(entry, default=str) + "\n")
+        except Exception as e:
+            self.logger.warning(f"Failed to write conversation log: {e}")
+
+    def _write_full_conversation(self, log_dir: Path, messages: list, system: str,
+                                  model: str, total_input_tokens: int,
+                                  total_output_tokens: int) -> None:
+        """Write the complete conversation state to a JSON file (overwritten each turn)."""
+        snapshot = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "model": model,
+            "system_prompt": system,
+            "total_input_tokens": total_input_tokens,
+            "total_output_tokens": total_output_tokens,
+            "messages": self._serialize_messages(messages),
+        }
+        try:
+            snapshot_path = log_dir / "conversation.json"
+            with open(snapshot_path, "w") as f:
+                json.dump(snapshot, f, indent=2, default=str)
+        except Exception as e:
+            self.logger.warning(f"Failed to write conversation snapshot: {e}")
 
     async def run(
         self,
@@ -109,6 +185,11 @@ class ClaudeAgent(BaseAgent):
         skill_content = load_skills()
         system = SYSTEM_PROMPT + skill_content
 
+        # Set up conversation log directory using Harbor's logs_dir (the agent/ subdir within the trial)
+        log_dir = self.logs_dir
+        log_dir.mkdir(parents=True, exist_ok=True)
+        turn_log_path = log_dir / "conversation_turns.jsonl"
+
         messages = [{"role": "user", "content": instruction}]
         total_input_tokens = 0
         total_output_tokens = 0
@@ -131,6 +212,11 @@ class ClaudeAgent(BaseAgent):
             context.n_input_tokens = total_input_tokens
             context.n_output_tokens = total_output_tokens
 
+            # Log assistant reasoning (text blocks)
+            for block in response.content:
+                if hasattr(block, "text") and block.text:
+                    self.logger.info(f"[assistant] {block.text[:500]}")
+
             # Check if the model wants to use tools
             tool_use_blocks = [
                 b for b in response.content if b.type == "tool_use"
@@ -141,7 +227,18 @@ class ClaudeAgent(BaseAgent):
                 final_text = "".join(
                     b.text for b in response.content if hasattr(b, "text")
                 )
-                self.logger.info(f"Agent finished: {final_text[:200]}")
+                self.logger.info(f"Agent finished: {final_text[:500]}")
+
+                # Log final turn
+                self._write_conversation_log(
+                    turn_log_path, turn + 1, messages, response.content,
+                    {"input_tokens": response.usage.input_tokens,
+                     "output_tokens": response.usage.output_tokens},
+                )
+                self._write_full_conversation(
+                    log_dir, messages, system, model,
+                    total_input_tokens, total_output_tokens,
+                )
                 break
 
             # Append assistant message (contains tool_use blocks)
@@ -149,9 +246,10 @@ class ClaudeAgent(BaseAgent):
 
             # Execute each tool call and collect results
             tool_results = []
+            tool_outputs_for_log = []
             for block in tool_use_blocks:
                 cmd = block.input.get("command", "")
-                self.logger.info(f"Executing: {cmd[:120]}")
+                self.logger.info(f"Executing: {cmd}")
 
                 result = await environment.exec(
                     command=cmd,
@@ -164,6 +262,18 @@ class ClaudeAgent(BaseAgent):
                 if result.stderr:
                     output += f"\n[stderr]\n{result.stderr}"
                 output += f"\n[exit_code: {result.return_code}]"
+
+                # Log command output (truncated for the text log, full in JSON)
+                output_preview = output[:1000] if len(output) > 1000 else output
+                self.logger.info(f"Output: {output_preview}")
+
+                tool_outputs_for_log.append({
+                    "tool_use_id": block.id,
+                    "command": cmd,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "exit_code": result.return_code,
+                })
 
                 # Truncate very long outputs to stay within context limits
                 if len(output) > 15000:
@@ -178,5 +288,23 @@ class ClaudeAgent(BaseAgent):
                 )
 
             messages.append({"role": "user", "content": tool_results})
+
+            # Write turn to conversation logs
+            self._write_conversation_log(
+                turn_log_path, turn + 1, messages, response.content,
+                {"input_tokens": response.usage.input_tokens,
+                 "output_tokens": response.usage.output_tokens},
+                tool_outputs=tool_outputs_for_log,
+            )
+            self._write_full_conversation(
+                log_dir, messages, system, model,
+                total_input_tokens, total_output_tokens,
+            )
         else:
             self.logger.warning(f"Agent hit max turns ({MAX_TURNS})")
+            # Still save conversation on max turns
+            self._write_full_conversation(
+                log_dir, messages, system, model,
+                total_input_tokens, total_output_tokens,
+            )
+
