@@ -86,13 +86,8 @@ else
     echo "[1/4] Running ClaudeAgent via Harbor..."
     echo "  Job: $JOB_NAME"
     echo "  Model: $MODEL"
-    echo "  This may take 2-3 minutes..."
-    echo ""
-
-    # Activate virtualenv and run Harbor with artifact extraction
-    source ~/.virtualenvs/skillathon/bin/activate
-
-    PYTHONPATH="$SCRIPT_DIR" harbor run \
+    # Run Harbor dynamically with Anthropic via uvx using Python 3.12
+    PYTHONPATH="$SCRIPT_DIR" uvx --python 3.12 --with anthropic harbor run \
         -p "$SCRIPT_DIR/task/" \
         --agent-import-path agent.claude_agent:ClaudeAgent \
         -m "$MODEL" \
@@ -144,10 +139,8 @@ echo "[3/4] Converting mission plan to visualizer format..."
 
 VISUALIZER_JSON="$VISUALIZER_DIR/src/data/generatedMission.json"
 
-# Activate virtualenv for Python conversion
-source ~/.virtualenvs/skillathon/bin/activate 2>/dev/null || true
-
-python3 -c "
+# Process JSON in python using uv to provide dependencies
+uv run --with pyyaml --with math python3 -c "
 import json, sys, math
 
 with open('$ARTIFACT_PATH', 'r') as f:
