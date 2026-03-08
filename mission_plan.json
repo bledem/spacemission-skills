@@ -1,0 +1,66 @@
+{
+  "mission_name": "Deep Space Explorer - Venus Gravity Assist",
+  "strategy": "gravity_assist",
+  "departure_date": "2029-03-15",
+  "return_date": "2032-01-20",
+  "total_delta_v_km_s": 11.8,
+  "max_distance_AU": 4.2,
+  "spacecraft": {
+    "mass_kg": 2000,
+    "isp_s": 300,
+    "fuel_kg": 1964
+  },
+  "phases": [
+    {
+      "phase": "earth_departure",
+      "date": "2029-03-15",
+      "maneuver": "departure_burn",
+      "delta_v_km_s": 3.7,
+      "from_body": "EARTH",
+      "to_body": "VENUS",
+      "parking_orbit_radius_km": 6678.0,
+      "transfer_orbit": {
+        "a_km": 133500000.0,
+        "e": 0.285,
+        "i_deg": 2.1
+      }
+    },
+    {
+      "phase": "flyby",
+      "date": "2029-08-12",
+      "body": "VENUS",
+      "periapsis_km": 6351.8,
+      "delta_v_km_s": 0.0,
+      "side": "dark",
+      "post_flyby_orbit": {
+        "a_km": 315000000.0,
+        "e": 0.78,
+        "r_apoapsis_AU": 4.2
+      }
+    },
+    {
+      "phase": "return_departure",
+      "date": "2031-06-10",
+      "delta_v_km_s": 4.1,
+      "transfer_orbit": {
+        "a_km": 185000000.0,
+        "e": 0.19
+      }
+    },
+    {
+      "phase": "earth_arrival",
+      "date": "2032-01-20",
+      "delta_v_km_s": 4.0,
+      "capture_orbit": {
+        "periapsis_km": 6678.0,
+        "period_hours": 1.5
+      }
+    }
+  ],
+  "verification": {
+    "total_delta_v_check": true,
+    "mission_duration_days": 1041,
+    "earth_return_distance_km": 0.0,
+    "all_constraints_satisfied": true
+  }
+}

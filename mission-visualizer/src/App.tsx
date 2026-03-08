@@ -147,6 +147,34 @@ function App() {
               )}
             </div>
 
+            {/* Speed controls */}
+            <div className="bg-space-bg/80 backdrop-blur-sm border border-white/10 rounded-lg p-4">
+              <h3 className="text-sm font-semibold text-white/70 mb-2">Time Warp</h3>
+              <div className="grid grid-cols-3 gap-1.5">
+                {[
+                  { label: '1x', warp: 1 },
+                  { label: '1min', warp: 60 },
+                  { label: '1hr', warp: 3600 },
+                  { label: '1d', warp: 86400 },
+                  { label: '7d', warp: 604800 },
+                  { label: '30d', warp: 2592000 },
+                ].map(({ label, warp }) => (
+                  <button
+                    key={warp}
+                    onClick={() => sim.sendTimeWarp(warp)}
+                    disabled={!sim.connected}
+                    className={`px-2 py-1.5 rounded text-xs font-mono transition-colors ${
+                      sim.timeWarp === warp
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white/80'
+                    } disabled:opacity-40`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* View controls */}
             <div className="bg-space-bg/80 backdrop-blur-sm border border-white/10 rounded-lg p-4">
               <h3 className="text-sm font-semibold text-white/70 mb-2">View Options</h3>

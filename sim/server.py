@@ -355,6 +355,18 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 
                 except json.JSONDecodeError:
                     continue
 
+                # Time warp control
+                if msg.get("type") == "set_time_warp" and "warp" in msg:
+                    warp_val = float(msg["warp"])
+                    await warp_queue.put(warp_val)
+                    ack = json.dumps({"type": "time_warp_ack", "warp": warp_val})
+                    for v in viewers:
+                        try:
+                            await v.send(ack)
+                        except Exception:
+                            pass
+                    continue
+
                 # Load mission plan
                 if msg.get("type") == "load_plan" and "plan" in msg:
                     logger.info("Received mission plan from viewer")
@@ -422,11 +434,23 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 
         logger.info(f"Executing plan: {plan.get('mission_name', 'unknown')}")
         conops = convert_plan_to_conops(plan)
 
-        # Re-initialize state from the plan's epoch/orbit
+        # Re-initialize state from the plan's epoch/orbit + spacecraft config
+        sc_config = plan.get("spacecraft")
+        sc_kwargs: dict = {}
+        if sc_config:
+            mass = sc_config.get("mass_kg", 14.0)
+            isp = sc_config.get("isp_s", 40.0)
+            fuel = sc_config.get("fuel_kg")
+            dry = mass - fuel if fuel else mass * 0.6
+            if fuel is None:
+                fuel = mass - dry
+            sc_kwargs = dict(wet_mass_kg=mass, dry_mass_kg=dry, fuel_kg=fuel, isp_s=isp)
+
         state, mission, phase = create_initial_state(
             epoch=conops.mission_start,
             altitude_km=conops.launch.target_injection_orbit.altitude_km,
             inclination_deg=conops.launch.target_injection_orbit.inclination_deg,
+            **sc_kwargs,
         )
         await _broadcast_state(state)
 
@@ -572,19 +596,31 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 
                 pass
         return False
 
+    # Mutable time warp — viewers can change it via set_time_warp message
+    current_time_warp = time_warp
+    warp_queue: asyncio.Queue[float] = asyncio.Queue()
+
     async def tick_loop():
-        nonlocal state, mission, phase, latest_obs_json
+        nonlocal state, mission, phase, latest_obs_json, current_time_warp
         import time as _time
 
         logger.info(
             f"Sim tick loop started at {tick_hz} Hz, "
-            f"time warp {time_warp}x (1 real sec = {time_warp} sim sec)"
+            f"time warp {current_time_warp}x (1 real sec = {current_time_warp} sim sec)"
         )
         last_wall = _time.monotonic()
         paused = False  # True after plan failure — stop ticking
 
         while True:
             await asyncio.sleep(tick_interval)
+
+            # Check for time warp changes
+            while not warp_queue.empty():
+                try:
+                    current_time_warp = warp_queue.get_nowait()
+                    logger.info(f"Time warp set to {current_time_warp}x")
+                except asyncio.QueueEmpty:
+                    break
 
             # Check for plan to execute (also unpauses on new plan)
             if not plan_queue.empty():
@@ -606,7 +642,7 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 
             now_wall = _time.monotonic()
             real_dt = now_wall - last_wall
             last_wall = now_wall
-            sim_dt = real_dt * time_warp
+            sim_dt = real_dt * current_time_warp
 
             # Drain queue — use latest agent action, or default coast
             action = None

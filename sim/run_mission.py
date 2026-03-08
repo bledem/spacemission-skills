@@ -65,8 +65,11 @@ def main() -> None:
         print(f"  Arrival Δv:  {conops.arrival.orbit_insertion_maneuver.delta_v_km_s:.4f} km/s")
     print()
 
+    spacecraft_config = plan.get("spacecraft")
+    if spacecraft_config:
+        print(f"  Spacecraft:  {spacecraft_config.get('mass_kg')} kg, ISP {spacecraft_config.get('isp_s')} s")
     print("Executing through sim engine...")
-    report = execute_conops(conops)
+    report = execute_conops(conops, spacecraft_config=spacecraft_config)
     print()
     print_report(report, verbose=verbose)
 

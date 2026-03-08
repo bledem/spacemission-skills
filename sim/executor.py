@@ -464,11 +464,15 @@ def _execute_end_of_life(
 def execute_conops(
     conops: CONOPS,
     record_trajectory: bool = False,
+    spacecraft_config: dict | None = None,
 ) -> MissionReport:
     """Execute a complete CONOPS through the sim and produce a mission report.
 
     If record_trajectory=True, the report will include a 'trajectory' field
     with a list of UniverseState snapshots at each step.
+
+    spacecraft_config: optional dict with mass_kg, isp_s, fuel_kg to override
+    the default MarCO-X parameters. Derived from mission_plan.json "spacecraft".
     """
     global _trajectory
     if record_trajectory:
@@ -476,10 +480,22 @@ def execute_conops(
     else:
         _trajectory = None
 
+    sc_kwargs: dict = {}
+    if spacecraft_config:
+        mass = spacecraft_config.get("mass_kg", 14.0)
+        isp = spacecraft_config.get("isp_s", 40.0)
+        fuel = spacecraft_config.get("fuel_kg")
+        dry = mass - fuel if fuel else mass * 0.6
+        if fuel is None:
+            # Derive fuel from mass and dry mass estimate
+            fuel = mass - dry
+        sc_kwargs = dict(wet_mass_kg=mass, dry_mass_kg=dry, fuel_kg=fuel, isp_s=isp)
+
     state, mission, _ = create_initial_state(
         epoch=conops.mission_start,
         altitude_km=conops.launch.target_injection_orbit.altitude_km,
         inclination_deg=conops.launch.target_injection_orbit.inclination_deg,
+        **sc_kwargs,
     )
 
     # Override mission state with CONOPS values

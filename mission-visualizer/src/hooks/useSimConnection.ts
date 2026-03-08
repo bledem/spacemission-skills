@@ -127,6 +127,8 @@ export interface LiveSimData {
   planSteps: PlanStep[];
   activePlanStep: number; // index of currently executing step, -1 if none
   sendPlan: (plan: unknown) => void;
+  timeWarp: number;
+  sendTimeWarp: (warp: number) => void;
 }
 
 export interface PlanStep {
@@ -147,6 +149,7 @@ export function useSimConnection(wsUrl: string | null = DEFAULT_WS_URL): LiveSim
   const [planError, setPlanError] = useState<string | null>(null);
   const [planSteps, setPlanSteps] = useState<PlanStep[]>([]);
   const [activePlanStep, setActivePlanStep] = useState(-1);
+  const [timeWarp, setTimeWarp] = useState(86400);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -167,6 +170,10 @@ export function useSimConnection(wsUrl: string | null = DEFAULT_WS_URL): LiveSim
         const data = JSON.parse(event.data);
 
         // Handle server control messages
+        if (data.type === 'time_warp_ack') {
+          setTimeWarp(data.warp as number);
+          return;
+        }
         if (data.type === 'plan_ack') {
           console.log('[Sim] Plan accepted by server');
           setPlanStatus('executing');
@@ -275,6 +282,12 @@ export function useSimConnection(wsUrl: string | null = DEFAULT_WS_URL): LiveSim
     ws.send(JSON.stringify({ type: 'load_plan', plan }));
   }, []);
 
+  const sendTimeWarp = useCallback((warp: number) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'set_time_warp', warp }));
+  }, []);
+
   useEffect(() => {
     connect();
     return () => {
@@ -297,6 +310,8 @@ export function useSimConnection(wsUrl: string | null = DEFAULT_WS_URL): LiveSim
       planSteps,
       activePlanStep,
       sendPlan,
+      timeWarp,
+      sendTimeWarp,
     };
   }
 
@@ -336,5 +351,7 @@ export function useSimConnection(wsUrl: string | null = DEFAULT_WS_URL): LiveSim
     planSteps,
     activePlanStep,
     sendPlan,
+    timeWarp,
+    sendTimeWarp,
   };
 }
