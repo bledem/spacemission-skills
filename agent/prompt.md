@@ -1,0 +1,1 @@
+Design a mission for the provided spacecraft to detect and map water ice near the lunar south pole. The mission should operate in a polar lunar orbit for at least one year and perform neutron spectrometry of permanently shadowed regions.

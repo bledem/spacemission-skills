@@ -149,7 +149,7 @@ export function useSimConnection(wsUrl: string | null = DEFAULT_WS_URL): LiveSim
   const [planError, setPlanError] = useState<string | null>(null);
   const [planSteps, setPlanSteps] = useState<PlanStep[]>([]);
   const [activePlanStep, setActivePlanStep] = useState(-1);
-  const [timeWarp, setTimeWarp] = useState(86400);
+  const [timeWarp, setTimeWarp] = useState(3600);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -236,7 +236,7 @@ export function useSimConnection(wsUrl: string | null = DEFAULT_WS_URL): LiveSim
           let hy = sc.position_km[1];
 
           if (sc.reference_body !== 0) { // Not Sun
-            const refBody = data.bodies.find(b => b.body === sc.reference_body);
+            const refBody = data.bodies.find((b: CelestialBodyState) => b.body === sc.reference_body);
             if (refBody) {
               hx += refBody.position_km[0];
               hy += refBody.position_km[1];
@@ -348,6 +348,7 @@ export function useSimConnection(wsUrl: string | null = DEFAULT_WS_URL): LiveSim
     events: state.events,
     trajectoryHistory: trail,
     planStatus,
+    planError,
     planSteps,
     activePlanStep,
     sendPlan,

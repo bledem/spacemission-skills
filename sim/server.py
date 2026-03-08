@@ -461,10 +461,10 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 
         plan_failed = False
 
         def _max_coast_chunk(s) -> float:
-            """Adaptive chunk: 600s near bodies, 86400s in heliocentric."""
+            """Adaptive chunk: 36000s near bodies, 86400s in heliocentric."""
             sc = s.spacecraft[0]
             if sc.reference_body != CelestialBody.SUN:
-                return 600.0
+                return 36000.0
             return 86400.0
 
         while state.time.epoch < end_epoch:
@@ -548,8 +548,10 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 
             phase = obs.phase
             step_count += 1
 
-            await _broadcast_state(state)
-            await asyncio.sleep(tick_interval)
+            # Broadcast every 10 steps to avoid flooding the UI
+            if step_count % 10 == 0:
+                await _broadcast_state(state)
+                await asyncio.sleep(tick_interval)
 
             # Check for terminal spacecraft status
             sc = state.spacecraft[0]
@@ -583,6 +585,9 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 
                     f"Ref: {sc.reference_body.name} | "
                     f"Fuel: {sc.fuel_kg:.3f} kg"
                 )
+
+        # Always broadcast final state
+        await _broadcast_state(state)
 
         if plan_failed:
             logger.info(f"Plan execution failed after {step_count} steps")
@@ -700,8 +705,8 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--tick-hz", type=float, default=10.0)
     parser.add_argument(
-        "--time-warp", type=float, default=1.0,
-        help="Sim-to-real time ratio. 1=real-time, 100=1s real → 100s sim (default: 1)",
+        "--time-warp", type=float, default=3600.0,
+        help="Sim-to-real time ratio. 1=real-time, 3600=1s real → 1h sim (default: 3600)",
     )
     args = parser.parse_args()
 
