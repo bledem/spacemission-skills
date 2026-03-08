@@ -1,0 +1,7 @@
+# Agent runtime
+harbor>=0.1.45
+anthropic>=0.84.0
+
+# spacecraft_sim dependencies (used inside the Docker task environment)
+numpy>=1.24
+scipy>=1.10
