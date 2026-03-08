@@ -254,6 +254,9 @@ export function MissionLog({ onAgentActive }: MissionLogProps = {}) {
   const [activeStepNums, setActiveStepNums] = useState<Set<number>>(new Set());
   const [latestStepNum, setLatestStepNum] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Track consecutive connection failures so we can give up and clear the overlay
+  const failCountRef = useRef(0);
+  const everConnectedRef = useRef(false);
 
   useEffect(() => {
     let es: EventSource;
@@ -264,11 +267,21 @@ export function MissionLog({ onAgentActive }: MissionLogProps = {}) {
 
       connectTimeout = setTimeout(() => {
         es.close();
+        failCountRef.current += 1;
+        // If we connected before but now can't reconnect after 3 tries,
+        // the capture server is gone — agent finished. Clear the overlay.
+        if (everConnectedRef.current && failCountRef.current >= 3) {
+          setStatus('done');
+          onAgentActive?.(false);
+          return;
+        }
         setTimeout(connect, 5000);
       }, 3000);
 
       es.onopen = () => {
         clearTimeout(connectTimeout);
+        failCountRef.current = 0;
+        everConnectedRef.current = true;
         setVisible(true);
         setStatus('streaming');
         onAgentActive?.(true);
@@ -277,6 +290,12 @@ export function MissionLog({ onAgentActive }: MissionLogProps = {}) {
       es.onerror = () => {
         clearTimeout(connectTimeout);
         es.close();
+        failCountRef.current += 1;
+        if (everConnectedRef.current && failCountRef.current >= 3) {
+          setStatus('done');
+          onAgentActive?.(false);
+          return;
+        }
         setTimeout(connect, 5000);
       };
 
@@ -311,11 +330,6 @@ export function MissionLog({ onAgentActive }: MissionLogProps = {}) {
         setStatus('done');
         onAgentActive?.(false);
         es.close();
-        // Open the final visualizer on the preview server (port 4173) where
-        // the built mission plan will be served after the script finishes step 5.
-        setTimeout(() => {
-          window.open('http://localhost:4173/?mission=generated', '_blank');
-        }, 3000);
       });
     }
 
@@ -347,7 +361,14 @@ export function MissionLog({ onAgentActive }: MissionLogProps = {}) {
           <span className="text-white/60 text-xs font-semibold uppercase tracking-wider">Agent Reasoning & Execution</span>
           <div className="flex items-center gap-2">
             {status === 'streaming' && <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />}
-            {status === 'done' && <span className="text-green-400 text-[10px]">DONE — redirecting…</span>}
+            {status === 'done' && (
+              <a
+                href="http://localhost:4173/?mission=generated"
+                className="text-green-400 text-[10px] underline hover:text-green-300"
+              >
+                DONE — open visualizer →
+              </a>
+            )}
             {status === 'error' && <span className="text-red-400 text-[10px]">RECONNECTING…</span>}
           </div>
         </div>
