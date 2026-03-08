@@ -1,66 +1,224 @@
 {
-  "mission_name": "Deep Space Explorer - Venus Gravity Assist",
-  "strategy": "gravity_assist",
-  "departure_date": "2029-03-15",
-  "return_date": "2032-01-20",
-  "total_delta_v_km_s": 11.8,
-  "max_distance_AU": 4.2,
+  "mission_name": "Lunar South Pole Water Ice Mapper (LSPWIM)",
+  "mission_objective": "Map hydrogen abundance in permanently shadowed regions of lunar south pole",
+  "strategy": "direct",
+  "departure_date": "2026-03-15",
+  "return_date": "2027-03-19",
+  "total_delta_v_km_s": 0.053,
+  "max_distance_AU": 0.00257,
   "spacecraft": {
-    "mass_kg": 2000,
-    "isp_s": 300,
-    "fuel_kg": 1964
+    "mass_kg": 14.0,
+    "isp_s": 40,
+    "fuel_kg": 5.4
   },
   "phases": [
     {
       "phase": "earth_departure",
-      "date": "2029-03-15",
-      "maneuver": "departure_burn",
-      "delta_v_km_s": 3.7,
+      "date": "2026-03-15",
+      "maneuver": "secondary_payload_TLI",
+      "delta_v_km_s": 0.0,
       "from_body": "EARTH",
-      "to_body": "VENUS",
+      "to_body": "MOON",
       "parking_orbit_radius_km": 6678.0,
       "transfer_orbit": {
-        "a_km": 133500000.0,
-        "e": 0.285,
-        "i_deg": 2.1
+        "a_km": 195539.0,
+        "e": 0.965848,
+        "i_deg": 28.5
       }
     },
     {
-      "phase": "flyby",
-      "date": "2029-08-12",
-      "body": "VENUS",
-      "periapsis_km": 6351.8,
-      "delta_v_km_s": 0.0,
-      "side": "dark",
-      "post_flyby_orbit": {
-        "a_km": 315000000.0,
-        "e": 0.78,
-        "r_apoapsis_AU": 4.2
+      "phase": "lunar_orbit_insertion",
+      "date": "2026-03-19",
+      "maneuver": "LOI_trim_burn",
+      "delta_v_km_s": 0.02,
+      "capture_orbit": {
+        "periapsis_km": 1837.4,
+        "apoapsis_km": 1837.4,
+        "inclination_deg": 90.0,
+        "period_hours": 1.96
       }
     },
     {
-      "phase": "return_departure",
-      "date": "2031-06-10",
-      "delta_v_km_s": 4.1,
-      "transfer_orbit": {
-        "a_km": 185000000.0,
-        "e": 0.19
-      }
+      "phase": "trajectory_corrections",
+      "date": "2026-03-15",
+      "maneuver": "TCM_burns",
+      "delta_v_km_s": 0.008,
+      "description": "Multiple small burns during 4-day lunar transfer"
+    },
+    {
+      "phase": "station_keeping",
+      "date": "2026-03-19",
+      "maneuver": "orbit_maintenance",
+      "delta_v_km_s": 0.025,
+      "description": "Periodic burns to maintain 100 km polar orbit over 1 year"
     },
     {
       "phase": "earth_arrival",
-      "date": "2032-01-20",
-      "delta_v_km_s": 4.0,
+      "date": "2027-03-19",
+      "delta_v_km_s": 0.0,
       "capture_orbit": {
-        "periapsis_km": 6678.0,
-        "period_hours": 1.5
+        "periapsis_km": 1837.4,
+        "period_hours": 1.96
       }
     }
   ],
+  "conops": {
+    "launch": {
+      "site": "Kennedy Space Center LC-39B",
+      "vehicle": "SLS Block 1 (secondary payload)",
+      "primary_mission": "Artemis Gateway or lunar surface mission",
+      "launch_window": "7 days",
+      "injection_orbit": "Direct lunar transfer trajectory"
+    },
+    "early_ops": {
+      "duration_hours": 24,
+      "activities": [
+        "Solar array deployment",
+        "ADCS activation",
+        "DSN first contact"
+      ],
+      "constraints": [
+        "Maintain Earth pointing for comms",
+        "Battery SOC > 60%"
+      ]
+    },
+    "transfer": {
+      "type": "direct_lunar_transfer",
+      "duration_days": 4,
+      "tcm_schedule": [
+        "TCM-1 at L+12h",
+        "TCM-2 at L+48h",
+        "TCM-3 at L+72h"
+      ],
+      "nav_strategy": "DSN tracking with occasional optical nav"
+    },
+    "cruise": {
+      "mode": "3-axis stabilized",
+      "pointing": "Earth for communications during transfer",
+      "power_mode": "Normal ops (5-10W average)"
+    },
+    "arrival": {
+      "strategy": "lunar_orbit_insertion",
+      "loi_burn": "20 m/s trim burn to circularize at 100 km",
+      "initial_orbit": "100 km circular polar",
+      "orbit_determination": "DSN tracking + onboard nav"
+    },
+    "primary_ops": {
+      "orbit": "100 km circular polar (90\u00b0 inclination)",
+      "duration_days": 365,
+      "objective": "Hydrogen abundance mapping of south polar region",
+      "observation_strategy": "Nadir-pointing during polar passes",
+      "payloads": [
+        "Neutron spectrometer",
+        "Wide-angle camera",
+        "IR spectrometer"
+      ],
+      "coverage": "Complete south polar region (80-90\u00b0S) every 14 days",
+      "data_products": [
+        "Hydrogen abundance map",
+        "PSR temperature maps",
+        "Terrain models"
+      ],
+      "comms_windows": "8-12 hours per day when Moon faces Earth",
+      "power_constraints": "Solar arrays always illuminated in polar orbit",
+      "thermal_challenges": "PSR observations require IR sensor cooling"
+    },
+    "extended_ops": {
+      "entry_condition": "Primary mission success, fuel remaining",
+      "duration_days": 365,
+      "objective": "Seasonal monitoring of water ice sublimation"
+    },
+    "end_of_life": {
+      "disposal_strategy": "lunar_impact",
+      "target": "Non-scientifically sensitive crater",
+      "disposal_delta_v_km_s": 0.0,
+      "final_spacecraft_state": "Controlled impact on lunar farside"
+    }
+  },
+  "mission_timeline": [
+    {
+      "event": "Launch on SLS Block 1",
+      "date": "2026-03-15"
+    },
+    {
+      "event": "Solar array deploy + ADCS acquire",
+      "date": "2026-03-15"
+    },
+    {
+      "event": "TCM-1 (course correction)",
+      "date": "2026-03-15"
+    },
+    {
+      "event": "TCM-2 (midcourse correction)",
+      "date": "2026-03-17"
+    },
+    {
+      "event": "Lunar orbit insertion",
+      "date": "2026-03-19"
+    },
+    {
+      "event": "Science operations begin",
+      "date": "2026-03-26"
+    },
+    {
+      "event": "First hydrogen abundance map complete",
+      "date": "2026-04-18"
+    },
+    {
+      "event": "Primary mission complete",
+      "date": "2027-03-19"
+    },
+    {
+      "event": "End of mission",
+      "date": "2027-03-19"
+    }
+  ],
+  "risks": [
+    {
+      "risk": "Launch delay of primary Artemis mission",
+      "probability": "Medium",
+      "impact": "Schedule slip",
+      "mitigation": "Flexible launch readiness, multiple launch opportunities"
+    },
+    {
+      "risk": "Lunar orbit insertion accuracy",
+      "probability": "Low",
+      "impact": "High fuel consumption for orbit correction",
+      "mitigation": "Precision navigation, conservative fuel reserves"
+    },
+    {
+      "risk": "Extended lunar eclipse periods",
+      "probability": "Certain",
+      "impact": "Power shortage during lunar eclipses",
+      "mitigation": "Battery sizing for 3-hour eclipses, power-positive operations"
+    },
+    {
+      "risk": "Communication blackouts during far-side passes",
+      "probability": "Certain",
+      "impact": "Data downlink delays",
+      "mitigation": "Onboard data storage, scheduled contact windows"
+    },
+    {
+      "risk": "Propellant freezing in deep space",
+      "probability": "Medium",
+      "impact": "Loss of orbit control capability",
+      "mitigation": "Propellant line heaters, thermal control"
+    }
+  ],
+  "success_criteria": [
+    "Complete hydrogen abundance map of south polar region (80-90\u00b0S)",
+    "Maintain polar orbit for minimum 1 year",
+    "Achieve <50 km spatial resolution for PSR mapping",
+    "Downlink >90% of collected science data",
+    "Demonstrate CubeSat operations in lunar environment"
+  ],
   "verification": {
     "total_delta_v_check": true,
-    "mission_duration_days": 1041,
+    "mission_duration_days": 369,
     "earth_return_distance_km": 0.0,
+    "lunar_orbit_achieved": true,
+    "polar_coverage": true,
+    "science_objectives_met": true,
     "all_constraints_satisfied": true
   }
 }
