@@ -1,1 +1,51 @@
-{}
+{
+  "mission_name": "Lambert Mars Round Trip",
+  "departure_date": "2028-09-15",
+  "total_delta_v_km_s": 19.5657,
+  "max_distance_AU": 1.5902,
+  "mission_duration_days": 958,
+  "tier": "Bronze",
+  "verification": {
+    "mission_duration_days": 958,
+    "delta_v_breakdown_km_s": {
+      "earth_departure": 5.1845,
+      "mars_arrival": 0,
+      "mars_departure": 3.9503,
+      "earth_arrival": 10.431
+    }
+  },
+  "phases": [
+    {
+      "phase": "earth_departure",
+      "date": "2028-09-15",
+      "delta_v_km_s": 5.1845,
+      "orbit": {
+        "a_AU": 1.2379,
+        "e": 0.284549,
+        "omega_rad": 0,
+        "period_days": 503.0
+      },
+      "description": "Trans-Mars injection burn"
+    },
+    {
+      "phase": "return_departure",
+      "date": "2030-10-01",
+      "delta_v_km_s": 3.9503,
+      "orbit": {
+        "a_AU": 1.16,
+        "e": 0.458148,
+        "omega_rad": 3.14159,
+        "period_days": 456.0
+      },
+      "description": "Mars departure burn"
+    },
+    {
+      "phase": "earth_arrival",
+      "date": "2031-05-01",
+      "delta_v_km_s": 10.431,
+      "orbit": null,
+      "description": "Earth capture burn"
+    }
+  ],
+  "flybys": []
+}

@@ -1,8 +1,8 @@
 .PHONY: sim viewer agent dev
 
-# Sim server (default: 10 FPS, 1 real sec = 1 sim hour)
+# Sim server (default: 10 FPS, 1 real sec = 1 sim day)
 sim:
-	cd $(CURDIR) && source .venv/bin/activate && python -m sim.server
+	cd $(CURDIR) && source .venv/bin/activate && python -m sim.server --time-warp 86400
 
 # Viewer (Vite dev server)
 viewer:

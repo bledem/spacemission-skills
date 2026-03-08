@@ -143,7 +143,7 @@ The fastest way to generate and visualize a mission. No Docker, no Harbor, no AP
 Verifies the full oracle → verifier → reward pipeline inside Docker, without needing Harbor.
 
 ```bash
-# 1. Build the environment image
+# 1. Build the environment image (context must be task/environment/)
 docker build -t spacecraft-test -f task/environment/Dockerfile task/environment/
 
 # 2. Run oracle + verifier end-to-end

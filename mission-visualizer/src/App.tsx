@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Scoreboard } from './components/Scoreboard';
 import { DeltaVBudget } from './components/DeltaVBudget';
 import { SolarSystemView } from './components/SolarSystemView';
 import { Timeline } from './components/Timeline';
 import { LiveView } from './components/LiveView';
 import { Telemetry } from './components/Telemetry';
+import { PlanSteps } from './components/PlanSteps';
 import { useMissionData } from './hooks/useMissionData';
 import { useSimConnection } from './hooks/useSimConnection';
 import sampleMission from './data/sampleMission.json';
@@ -68,6 +69,30 @@ function App() {
     setIsPlaying((prev) => !prev);
   }, []);
 
+  // File input ref for plan loader
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleLoadPlan = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const plan = JSON.parse(ev.target?.result as string);
+        sim.sendPlan(plan);
+      } catch (err) {
+        console.error('Failed to parse plan JSON:', err);
+      }
+    };
+    reader.readAsText(file);
+    // Reset so the same file can be loaded again
+    e.target.value = '';
+  }, [sim]);
+
   // --- Live sim mode ---
   if (isLiveMode) {
     return (
@@ -83,6 +108,44 @@ function App() {
           {/* Left sidebar — telemetry */}
           <div className="lg:col-span-1 space-y-4">
             <Telemetry sim={sim} />
+            <PlanSteps sim={sim} />
+
+            {/* Plan loader */}
+            <div className="bg-space-bg/80 backdrop-blur-sm border border-white/10 rounded-lg p-4">
+              <h3 className="text-sm font-semibold text-white/70 mb-2">Mission Plan</h3>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+              <button
+                onClick={handleLoadPlan}
+                disabled={!sim.connected || sim.planStatus === 'executing'}
+                className="w-full px-3 py-2 rounded text-sm font-mono text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Load Plan
+              </button>
+              {sim.planStatus === 'executing' && (
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+                  <span className="text-xs text-yellow-400/70 font-mono">EXECUTING...</span>
+                </div>
+              )}
+              {sim.planStatus === 'complete' && (
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-green-400" />
+                  <span className="text-xs text-green-400/70 font-mono">COMPLETE</span>
+                </div>
+              )}
+              {sim.planStatus === 'error' && (
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-red-400" />
+                  <span className="text-xs text-red-400/70 font-mono">FAILED</span>
+                </div>
+              )}
+            </div>
 
             {/* View controls */}
             <div className="bg-space-bg/80 backdrop-blur-sm border border-white/10 rounded-lg p-4">

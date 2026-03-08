@@ -1,31 +1,25 @@
 #!/bin/bash
 #
-# Run the Deep Space Explorer mission e2e and visualize it.
+# Run the Deep Space Explorer mission e2e.
 #
 # This script:
 # 1. Sets up the spacecraft_sim Python package
 # 2. Runs the mission solver to generate a mission plan
 # 3. Verifies the mission plan
-# 4. Copies the plan to the mission-visualizer
-# 5. Launches the visualizer to display it
 #
-# Usage: ./run-mission-e2e.sh [--open] [--sample]
-#   --open    Open browser automatically after starting visualizer
+# Usage: ./run-mission-e2e.sh [--sample]
 #   --sample  Use sample mission instead of generating new one
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TASK_DIR="$SCRIPT_DIR/task"
-VISUALIZER_DIR="$SCRIPT_DIR/mission-visualizer"
 MISSION_OUTPUT="/tmp/mission_plan.json"
 
 # Parse args
-OPEN_BROWSER=false
 USE_SAMPLE=false
 for arg in "$@"; do
     case $arg in
-        --open) OPEN_BROWSER=true ;;
         --sample) USE_SAMPLE=true ;;
     esac
 done
@@ -34,7 +28,7 @@ echo "=== Deep Space Explorer E2E ==="
 echo ""
 
 # Step 1: Setup Python environment
-echo "[1/5] Setting up Python environment..."
+echo "[1/3] Setting up Python environment..."
 cd "$TASK_DIR/environment/setup"
 
 # Create venv if it doesn't exist
@@ -50,7 +44,7 @@ if ! python3 -c "import spacecraft_sim" 2>/dev/null; then
 fi
 
 # Step 2: Generate mission plan
-echo "[2/5] Generating mission plan..."
+echo "[2/3] Generating mission plan..."
 
 if $USE_SAMPLE; then
     echo "  Using sample mission (Mars Hohmann Round-Trip)..."
@@ -254,7 +248,7 @@ fi
 echo "  Mission plan saved to $MISSION_OUTPUT"
 
 # Step 3: Verify the mission
-echo "[3/5] Verifying mission plan..."
+echo "[3/3] Verifying mission plan..."
 python3 -c "
 import json
 
@@ -290,38 +284,6 @@ else:
     print('  Status: WARNING - constraints may be violated')
 "
 
-# Step 4: Copy to visualizer
-echo "[4/5] Copying mission plan to visualizer..."
-cp "$MISSION_OUTPUT" "$VISUALIZER_DIR/src/data/generatedMission.json"
-echo "  Copied to src/data/generatedMission.json"
-
-# Step 5: Launch visualizer
-echo "[5/5] Launching mission visualizer..."
-cd "$VISUALIZER_DIR"
-
-# Check if node_modules exists
-if [[ ! -d "node_modules" ]]; then
-    echo "  Installing dependencies..."
-    npm install
-fi
-
-# Kill any existing dev server on port 5173 or 5174
-pkill -f "vite.*5173" 2>/dev/null || true
-pkill -f "vite.*5174" 2>/dev/null || true
-sleep 1
-
 echo ""
-echo "=== Mission Visualizer ==="
-echo "Starting dev server on http://localhost:5173"
-echo "  - View generated mission: http://localhost:5173/?mission=generated"
-echo "  - View sample mission: http://localhost:5173/?mission=sample"
-echo ""
-
-if $OPEN_BROWSER; then
-    npm run dev -- --host &
-    sleep 3
-    open "http://localhost:5173/?mission=generated"
-    wait
-else
-    npm run dev -- --host
-fi
+echo "=== E2E complete ==="
+echo "Mission plan: $MISSION_OUTPUT"
