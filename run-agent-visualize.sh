@@ -2,18 +2,19 @@
 #
 # Run the Claude agent via Harbor, extract the mission plan, and visualize it.
 #
-# This script:
-# 1. Runs the ClaudeAgent via Harbor with artifact extraction enabled
-# 2. Finds the extracted mission_plan.json from the job artifacts
-# 3. Converts it to the visualizer's format
-# 4. Copies it to the mission-visualizer
-# 5. Builds and launches the visualizer
+# New flow:
+# 1. Open the visualizer in prompt mode — user enters mission objective in browser
+# 2. Inject the captured objective into a temp copy of the task directory
+# 3. Run the ClaudeAgent via Harbor (stdout tailed to SSE server for live feed)
+# 4. Extract mission_plan.json from the job artifacts
+# 5. Convert it to the visualizer's format
+# 6. Build and launch the visualizer with the results
 #
 # Prerequisites:
-#   - Python virtualenv "skillathon" with harbor + anthropic installed
 #   - ANTHROPIC_API_KEY in .env.local
 #   - Docker running (Harbor uses it for the task environment)
 #   - Node.js + npm (for the visualizer)
+#   - Python 3 (for the capture server)
 #
 # Usage:
 #   ./run-agent-visualize.sh [OPTIONS]
@@ -26,11 +27,15 @@
 #   --debug           Enable Harbor debug logging
 #   --help            Show this help message
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VISUALIZER_DIR="$SCRIPT_DIR/mission-visualizer"
+INSTRUCTION_FILE="$SCRIPT_DIR/task/instruction.md"
 ENV_FILE="$SCRIPT_DIR/.env.local"
+
+CAPTURE_PORT=8788
+VITE_PORT=5174
 
 # Defaults
 JOB_NAME="agent-viz-$(date +%Y%m%d-%H%M%S)"
@@ -39,41 +44,51 @@ MODEL="anthropic/claude-sonnet-4-20250514"
 SKIP_AGENT=false
 DEBUG_FLAG=""
 
-# Parse args
 for arg in "$@"; do
     case $arg in
-        --open) OPEN_BROWSER=true ;;
-        --skip-agent) SKIP_AGENT=true ;;
-        --debug) DEBUG_FLAG="--debug" ;;
-        --help)
-            head -25 "$0" | tail -20
-            exit 0
-            ;;
-        --job-name=*) JOB_NAME="${arg#*=}" ;;
-        --model=*) MODEL="${arg#*=}" ;;
+        --open)         OPEN_BROWSER=true ;;
+        --skip-agent)   SKIP_AGENT=true ;;
+        --debug)        DEBUG_FLAG="--debug" ;;
+        --help)         head -30 "$0" | tail -25; exit 0 ;;
+        --job-name=*)   JOB_NAME="${arg#*=}" ;;
+        --model=*)      MODEL="${arg#*=}" ;;
     esac
 done
 
 echo "=== Agent → Visualize Pipeline ==="
 echo ""
 
-# ── Step 0: Load API key ──────────────────────────────────────────────
+# ── Step 0: Load API key ──────────────────────────────────────────────────────
 if [[ -f "$ENV_FILE" ]]; then
-    export ANTHROPIC_API_KEY=$(grep ANTHROPIC_API_KEY "$ENV_FILE" | cut -d= -f2)
+    export ANTHROPIC_API_KEY
+    ANTHROPIC_API_KEY=$(grep ANTHROPIC_API_KEY "$ENV_FILE" | cut -d= -f2)
 fi
-
-if [[ -z "$ANTHROPIC_API_KEY" ]]; then
+if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
     echo "ERROR: ANTHROPIC_API_KEY not set. Add it to .env.local or export it."
     exit 1
 fi
 
-# ── Step 1: Run agent via Harbor ──────────────────────────────────────
+# ── Cleanup handler ───────────────────────────────────────────────────────────
+CAPTURE_PID=""
+VITE_PID=""
+PROMPT_FILE="/tmp/mission_prompt_$$.json"
+LOG_FILE="/tmp/agent_log_$$.txt"
+TASK_TMP_DIR=""
+
+cleanup() {
+    [[ -n "$CAPTURE_PID" ]] && kill "$CAPTURE_PID" 2>/dev/null || true
+    [[ -n "$VITE_PID"    ]] && kill "$VITE_PID"    2>/dev/null || true
+    rm -f "$PROMPT_FILE" "$LOG_FILE"
+    [[ -n "$TASK_TMP_DIR" ]] && rm -rf "$TASK_TMP_DIR"
+}
+trap cleanup EXIT
+
 JOBS_DIR="$SCRIPT_DIR/jobs"
 JOB_DIR="$JOBS_DIR/$JOB_NAME"
 
+# ── Step 1: Capture mission objective ────────────────────────────────────────
 if $SKIP_AGENT; then
-    echo "[1/4] Skipping agent run (--skip-agent), finding latest job..."
-    # Find the most recent job directory
+    echo "[1/5] Skipping prompt capture (--skip-agent), finding latest job..."
     JOB_DIR=$(ls -dt "$JOBS_DIR"/*/ 2>/dev/null | head -1)
     if [[ -z "$JOB_DIR" ]]; then
         echo "ERROR: No existing jobs found in $JOBS_DIR"
@@ -83,26 +98,141 @@ if $SKIP_AGENT; then
     JOB_NAME=$(basename "$JOB_DIR")
     echo "  Using job: $JOB_NAME"
 else
-    echo "[1/4] Running ClaudeAgent via Harbor..."
-    echo "  Job: $JOB_NAME"
-    echo "  Model: $MODEL"
-    # Run Harbor dynamically with Anthropic via uvx using Python 3.12
+    echo "[1/5] Opening visualizer for mission objective input..."
+
+    # Ensure visualizer deps are installed
+    cd "$VISUALIZER_DIR"
+    if [[ ! -d "node_modules" ]]; then
+        echo "  Installing visualizer dependencies..."
+        npm install --silent
+    fi
+
+    # Create empty log file so the capture server can start tailing immediately
+    touch "$LOG_FILE"
+
+    # Start the capture + SSE server
+    python3 "$SCRIPT_DIR/capture_server.py" "$PROMPT_FILE" "$LOG_FILE" "$CAPTURE_PORT" &
+    CAPTURE_PID=$!
+    sleep 1  # give the server a moment to bind
+
+    # Start Vite dev server
+    npm run dev -- --port "$VITE_PORT" --strictPort &
+    VITE_PID=$!
+    sleep 3  # give Vite time to compile
+
+    # Open browser to prompt mode
+    PROMPT_URL="http://localhost:$VITE_PORT/?mode=prompt"
+    echo "  Opening $PROMPT_URL"
+    open "$PROMPT_URL" 2>/dev/null \
+        || xdg-open "$PROMPT_URL" 2>/dev/null \
+        || echo "  (could not auto-open — navigate there manually)"
+
+    # Poll for the objective file (set when user clicks "Run Mission")
+    echo ""
+    echo "  Waiting for mission objective to be submitted in the browser..."
+    until [[ -f "$PROMPT_FILE" ]]; do sleep 0.5; done
+
+    MISSION_OBJECTIVE=$(python3 -c "
+import json, sys
+print(json.load(open(sys.argv[1]))['objective'])
+" "$PROMPT_FILE")
+
+    echo ""
+    echo "  Objective captured:"
+    echo "  → $MISSION_OBJECTIVE"
+    echo ""
+
+    # Kill the Vite dev server (capture server stays alive for SSE)
+    kill "$VITE_PID" 2>/dev/null || true
+    wait "$VITE_PID" 2>/dev/null || true
+    VITE_PID=""
+
+    # Build a temp task directory with the objective injected into instruction.md
+    TASK_TMP_DIR="$(mktemp -d)/task"
+    cp -r "$SCRIPT_DIR/task/." "$TASK_TMP_DIR/"
+
+    python3 - "$MISSION_OBJECTIVE" "$TASK_TMP_DIR/instruction.md" <<'PYEOF'
+import sys, re
+
+objective = sys.argv[1]
+path      = sys.argv[2]
+text      = open(path).read()
+
+# Replace {{MISSION_OBJECTIVE}} placeholder if present
+if "{{MISSION_OBJECTIVE}}" in text:
+    text = text.replace("{{MISSION_OBJECTIVE}}", objective)
+else:
+    # Fallback: replace the hardcoded goal sentence
+    text = re.sub(
+        r"(Your goal is to ).*?(?=\n)",
+        r"\g<1>" + objective,
+        text,
+        count=1,
+    )
+
+open(path, "w").write(text)
+PYEOF
+fi
+
+# ── Step 2: Run agent via Harbor ──────────────────────────────────────────────
+if ! $SKIP_AGENT; then
+    echo "[2/5] Running ClaudeAgent via Harbor..."
+    echo "  Job: $JOB_NAME  |  Model: $MODEL"
+    echo ""
+
+    TASK_DIR="${TASK_TMP_DIR:-$SCRIPT_DIR/task}"
+
+    # Clear stale mission data so the visualizer shows a blank state while the agent runs
+    echo '{"mission_name":"","status":"computing"}' > "$VISUALIZER_DIR/src/data/generatedMission.json"
+
+    # Run Harbor in background so we can poll for the trial dir simultaneously
     PYTHONPATH="$SCRIPT_DIR" uvx --python 3.12 --with anthropic harbor run \
-        -p "$SCRIPT_DIR/task/" \
+        -p "$TASK_DIR" \
         --agent-import-path agent.claude_agent:ClaudeAgent \
         -m "$MODEL" \
         --job-name "$JOB_NAME" \
         --artifact /app/mission_plan.json \
-        $DEBUG_FLAG
+        $DEBUG_FLAG \
+        2>&1 | tee -a "$LOG_FILE" &
+    HARBOR_PID=$!
+
+    # Poll for the trial directory and conversation JSONL, then send path to SSE server
+    (
+        until TRIAL=$(ls -d "$JOB_DIR"/task__*/ 2>/dev/null | head -1); [ -n "$TRIAL" ]; do
+            sleep 1
+        done
+        JSONL="$TRIAL/agent/conversation_turns.jsonl"
+        until [ -f "$JSONL" ]; do sleep 1; done
+        curl -s -X POST "http://localhost:$CAPTURE_PORT/set-jsonl" \
+             -H "Content-Type: application/json" \
+             -d "{\"path\": \"$JSONL\"}" || true
+        echo "  [jsonl] Streaming from: $JSONL"
+    ) &
+    JSONL_WATCHER_PID=$!
+
+    # Wait for Harbor to finish
+    wait $HARBOR_PID || true
+    AGENT_EXIT=$?
+    wait $JSONL_WATCHER_PID 2>/dev/null || true
 
     echo ""
-    echo "  Agent run complete."
+    echo "  Agent run complete (exit: $AGENT_EXIT)."
+
+    # Signal the SSE server that the agent is done
+    curl -s -X POST "http://localhost:$CAPTURE_PORT/done" \
+         -H "Content-Type: application/json" \
+         -d "{\"exit_code\": $AGENT_EXIT}" || true
+
+    # Wait for capture server to shut itself down
+    wait "$CAPTURE_PID" 2>/dev/null || true
+    CAPTURE_PID=""
+else
+    echo "[2/5] Skipping agent run (--skip-agent)."
 fi
 
-# ── Step 2: Extract mission plan from artifacts ───────────────────────
-echo "[2/4] Extracting mission plan from job artifacts..."
+# ── Step 3: Extract mission plan from artifacts ───────────────────────────────
+echo "[3/5] Extracting mission plan from job artifacts..."
 
-# Find the trial directory (Harbor creates task__<random> subdirs)
 TRIAL_DIR=$(ls -d "$JOB_DIR"/task__*/ 2>/dev/null | head -1)
 if [[ -z "$TRIAL_DIR" ]]; then
     echo "ERROR: No trial directory found in $JOB_DIR"
@@ -111,166 +241,120 @@ fi
 TRIAL_DIR="${TRIAL_DIR%/}"
 TRIAL_NAME=$(basename "$TRIAL_DIR")
 
-# Look for the artifact
 ARTIFACT_PATH="$TRIAL_DIR/artifacts/mission_plan.json"
 if [[ ! -f "$ARTIFACT_PATH" ]]; then
-    # Try alternate locations Harbor might place it
     ARTIFACT_PATH=$(find "$TRIAL_DIR/artifacts" -name "mission_plan.json" 2>/dev/null | head -1)
 fi
 
 if [[ -z "$ARTIFACT_PATH" || ! -f "$ARTIFACT_PATH" ]]; then
     echo "ERROR: mission_plan.json not found in artifacts."
     echo "  Looked in: $TRIAL_DIR/artifacts/"
-    echo "  The agent may not have produced /app/mission_plan.json."
-    echo ""
-    echo "  Verifier output:"
     cat "$TRIAL_DIR/verifier/test-stdout.txt" 2>/dev/null || echo "  (no verifier output)"
     exit 1
 fi
 
 echo "  Found: $ARTIFACT_PATH"
-
-# Show reward
 REWARD=$(cat "$TRIAL_DIR/verifier/reward.txt" 2>/dev/null || echo "unknown")
 echo "  Reward: $REWARD"
 
-# ── Step 3: Convert to visualizer format ──────────────────────────────
-echo "[3/4] Converting mission plan to visualizer format..."
+# ── Step 4: Convert to visualizer format ─────────────────────────────────────
+echo "[4/5] Converting mission plan to visualizer format..."
 
 VISUALIZER_JSON="$VISUALIZER_DIR/src/data/generatedMission.json"
 
-# Process JSON in python using uv to provide dependencies
 uv run --with pyyaml python3 -c "
 import json, sys, math
 
-with open('$ARTIFACT_PATH', 'r') as f:
+with open('$ARTIFACT_PATH') as f:
     plan = json.load(f)
 
-AU_KM = 149_597_870.7
-mu_sun = 1.327124400189e11  # km^3/s^2
+AU_KM  = 149_597_870.7
+mu_sun = 1.327124400189e11
 
-# Extract core fields
-mission_name = plan.get('mission_name', 'Agent Mission')
+mission_name   = plan.get('mission_name', 'Agent Mission')
 departure_date = plan.get('departure_date', '')
-total_dv = plan.get('total_delta_v_km_s', 0)
-max_dist = plan.get('max_distance_AU', 0)
-
-# Duration
-dep_date = plan.get('departure_date', '')
-ret_date = plan.get('return_date', '')
-duration = plan.get('verification', {}).get('mission_duration_days', 0)
+total_dv       = plan.get('total_delta_v_km_s', 0)
+max_dist       = plan.get('max_distance_AU', 0)
+dep_date       = plan.get('departure_date', '')
+ret_date       = plan.get('return_date', '')
+duration       = plan.get('verification', {}).get('mission_duration_days', 0)
 if not duration and dep_date and ret_date:
     from datetime import datetime
-    d1 = datetime.strptime(dep_date, '%Y-%m-%d')
-    d2 = datetime.strptime(ret_date, '%Y-%m-%d')
-    duration = (d2 - d1).days
+    duration = (datetime.strptime(ret_date, '%Y-%m-%d') - datetime.strptime(dep_date, '%Y-%m-%d')).days
 
-# Tier
-if max_dist >= 6.0:
-    tier = 'Platinum'
-elif max_dist >= 4.0:
-    tier = 'Gold'
-elif max_dist >= 2.0:
-    tier = 'Silver'
-else:
-    tier = 'Bronze'
+tier = 'Platinum' if max_dist >= 6 else 'Gold' if max_dist >= 4 else 'Silver' if max_dist >= 2 else 'Bronze'
 
-# Build delta-v breakdown
-dv_breakdown = {}
-for phase in plan.get('phases', []):
-    dv_breakdown[phase.get('phase', 'unknown')] = phase.get('delta_v_km_s', 0)
+dv_breakdown = {p.get('phase','?'): p.get('delta_v_km_s',0) for p in plan.get('phases', [])}
 
-# Convert phases to visualizer format
 viz_phases = []
 for phase in plan.get('phases', []):
     orbit = None
     transfer = phase.get('transfer_orbit') or phase.get('post_flyby_orbit')
     if transfer:
         a_km = transfer.get('a_km', 0)
-        e = transfer.get('e', 0)
+        e    = transfer.get('e', 0)
         if a_km > 0:
-            a_au = a_km / AU_KM
-            period_s = 2 * math.pi * math.sqrt(a_km**3 / mu_sun)
-            period_days = period_s / 86400
             orbit = {
-                'a_AU': round(a_au, 4),
-                'e': round(e, 6),
-                'omega_rad': transfer.get('omega_rad', 0),
-                'period_days': round(period_days)
+                'a_AU':        round(a_km / AU_KM, 4),
+                'e':           round(e, 6),
+                'omega_rad':   transfer.get('omega_rad', 0),
+                'period_days': round(2 * math.pi * math.sqrt(a_km**3 / mu_sun) / 86400),
             }
-
-    viz_phase = {
-        'phase': phase.get('phase', ''),
-        'date': phase.get('date', ''),
+    viz_phases.append({
+        'phase':        phase.get('phase', ''),
+        'date':         phase.get('date', ''),
         'delta_v_km_s': phase.get('delta_v_km_s', 0),
-        'orbit': orbit,
-        'description': phase.get('maneuver', phase.get('phase', ''))
+        'orbit':        orbit,
+        'description':  phase.get('maneuver', phase.get('phase', '')),
+    })
+
+flybys = [
+    {
+        'planet':              p.get('body', ''),
+        'date':                p.get('date', ''),
+        'periapsis_altitude_km': p.get('periapsis_km', 0),
+        'turn_angle_deg':      p.get('turn_angle_deg', 0),
+        'incoming_v_inf_km_s': 0,
+        'outgoing_v_inf_km_s': 0,
     }
-    viz_phases.append(viz_phase)
+    for p in plan.get('phases', []) if p.get('phase') == 'flyby'
+]
 
-# Build flybys array
-flybys = []
-for phase in plan.get('phases', []):
-    if phase.get('phase') == 'flyby':
-        flybys.append({
-            'planet': phase.get('body', ''),
-            'date': phase.get('date', ''),
-            'periapsis_altitude_km': phase.get('periapsis_km', 0),
-            'turn_angle_deg': phase.get('turn_angle_deg', 0),
-            'incoming_v_inf_km_s': 0,
-            'outgoing_v_inf_km_s': 0
-        })
-
-viz_plan = {
-    'mission_name': mission_name,
-    'departure_date': departure_date,
-    'total_delta_v_km_s': total_dv,
-    'max_distance_AU': max_dist,
+viz = {
+    'mission_name':         mission_name,
+    'departure_date':       departure_date,
+    'total_delta_v_km_s':   total_dv,
+    'max_distance_AU':      max_dist,
     'mission_duration_days': duration,
-    'tier': tier,
-    'verification': {
-        'mission_duration_days': duration,
-        'delta_v_breakdown_km_s': dv_breakdown
-    },
-    'phases': viz_phases,
-    'flybys': flybys
+    'tier':                 tier,
+    'verification': {'mission_duration_days': duration, 'delta_v_breakdown_km_s': dv_breakdown},
+    'phases':               viz_phases,
+    'flybys':               flybys,
 }
-
 with open('$VISUALIZER_JSON', 'w') as f:
-    json.dump(viz_plan, f, indent=2)
+    json.dump(viz, f, indent=2)
 
-print(f'  Mission: {mission_name}')
-print(f'  Tier: {tier} | Distance: {max_dist:.3f} AU | Delta-v: {total_dv:.3f} km/s | Duration: {duration} days')
+print(f'  {mission_name}  |  {tier}  |  {max_dist:.3f} AU  |  Δv {total_dv:.3f} km/s  |  {duration} days')
 "
 
-echo "  Written to: src/data/generatedMission.json"
+echo "  Written: src/data/generatedMission.json"
 
-# ── Step 4: Build and launch visualizer ───────────────────────────────
-echo "[4/4] Launching mission visualizer..."
+# ── Step 5: Build and launch visualizer ──────────────────────────────────────
+echo "[5/5] Launching mission visualizer..."
 cd "$VISUALIZER_DIR"
 
-# Install deps if needed
-if [[ ! -d "node_modules" ]]; then
-    echo "  Installing dependencies..."
-    npm install --silent
-fi
-
-# Build for preview (faster than dev server for one-shot viewing)
 echo "  Building..."
 npm run build --silent
 
-# Kill any existing preview server
 pkill -f "vite preview" 2>/dev/null || true
 sleep 1
 
 echo ""
 echo "=== Mission Visualizer Ready ==="
-echo "  Job: $JOB_NAME (trial: $TRIAL_NAME)"
+echo "  Job: $JOB_NAME  (trial: $TRIAL_NAME)"
 echo "  Reward: $REWARD"
 echo ""
-echo "Starting preview server on http://localhost:4173"
-echo "  - Generated mission: http://localhost:4173/?mission=generated"
-echo "  - Sample mission:    http://localhost:4173/?mission=sample"
+echo "  http://localhost:4173/?mission=generated"
 echo ""
 
 if $OPEN_BROWSER; then

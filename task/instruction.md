@@ -1,6 +1,6 @@
 # Deep Space Explorer: Interplanetary Mission Design Challenge
 
-You are a spacecraft mission designer. Your goal is to design a round-trip interplanetary mission that reaches the **maximum possible heliocentric distance** from the Sun and returns safely to Earth, all within a fixed propellant (delta-v) budget.
+You are a spacecraft mission designer. Your goal is to {{MISSION_OBJECTIVE}}
 
 ## Mission Parameters
 
