@@ -140,7 +140,7 @@ echo "[3/4] Converting mission plan to visualizer format..."
 VISUALIZER_JSON="$VISUALIZER_DIR/src/data/generatedMission.json"
 
 # Process JSON in python using uv to provide dependencies
-uv run --with pyyaml --with math python3 -c "
+uv run --with pyyaml python3 -c "
 import json, sys, math
 
 with open('$ARTIFACT_PATH', 'r') as f:
