@@ -5,6 +5,7 @@ import { SolarSystemView } from './components/SolarSystemView';
 import { Timeline } from './components/Timeline';
 import { LiveView } from './components/LiveView';
 import { Telemetry } from './components/Telemetry';
+import { PlanSteps } from './components/PlanSteps';
 import { useMissionData } from './hooks/useMissionData';
 import { useSimConnection } from './hooks/useSimConnection';
 import sampleMission from './data/sampleMission.json';
@@ -94,13 +95,6 @@ function App() {
 
   // --- Live sim mode ---
   if (isLiveMode) {
-    const planLabel = sim.planStatus === 'executing' ? 'EXECUTING...'
-      : sim.planStatus === 'complete' ? 'COMPLETE'
-      : 'Load Plan';
-    const planColor = sim.planStatus === 'executing' ? 'bg-yellow-600 hover:bg-yellow-500'
-      : sim.planStatus === 'complete' ? 'bg-green-700 hover:bg-green-600'
-      : 'bg-blue-600 hover:bg-blue-500';
-
     return (
       <div className="min-h-screen bg-space-bg text-white p-4">
         <header className="mb-4 flex items-center gap-3">
@@ -114,6 +108,7 @@ function App() {
           {/* Left sidebar — telemetry */}
           <div className="lg:col-span-1 space-y-4">
             <Telemetry sim={sim} />
+            <PlanSteps sim={sim} />
 
             {/* Plan loader */}
             <div className="bg-space-bg/80 backdrop-blur-sm border border-white/10 rounded-lg p-4">
@@ -128,19 +123,27 @@ function App() {
               <button
                 onClick={handleLoadPlan}
                 disabled={!sim.connected || sim.planStatus === 'executing'}
-                className={`w-full px-3 py-2 rounded text-sm font-mono text-white ${planColor} disabled:opacity-50 disabled:cursor-not-allowed transition-colors`}
+                className="w-full px-3 py-2 rounded text-sm font-mono text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                {planLabel}
+                Load Plan
               </button>
               {sim.planStatus === 'executing' && (
-                <p className="text-xs text-yellow-400/70 mt-2 font-mono">
-                  Executing mission plan...
-                </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+                  <span className="text-xs text-yellow-400/70 font-mono">EXECUTING...</span>
+                </div>
               )}
               {sim.planStatus === 'complete' && (
-                <p className="text-xs text-green-400/70 mt-2 font-mono">
-                  Plan execution complete
-                </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-green-400" />
+                  <span className="text-xs text-green-400/70 font-mono">COMPLETE</span>
+                </div>
+              )}
+              {sim.planStatus === 'error' && (
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-red-400" />
+                  <span className="text-xs text-red-400/70 font-mono">FAILED</span>
+                </div>
               )}
             </div>
 

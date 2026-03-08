@@ -358,8 +358,28 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 
                 # Load mission plan
                 if msg.get("type") == "load_plan" and "plan" in msg:
                     logger.info("Received mission plan from viewer")
-                    await plan_queue.put(msg["plan"])
-                    await ws.send(json.dumps({"type": "plan_ack", "status": "ok"}))
+                    plan_data = msg["plan"]
+                    await plan_queue.put(plan_data)
+                    # Send steps to all viewers so the UI can show them
+                    steps = [
+                        {
+                            "phase": p.get("phase", "unknown"),
+                            "date": p.get("date", ""),
+                            "delta_v_km_s": p.get("delta_v_km_s", 0),
+                            "description": p.get("description", p.get("phase", "")),
+                        }
+                        for p in plan_data.get("phases", [])
+                    ]
+                    ack_msg = json.dumps({
+                        "type": "plan_ack",
+                        "status": "ok",
+                        "steps": steps,
+                    })
+                    for v in viewers:
+                        try:
+                            await v.send(ack_msg)
+                        except Exception:
+                            pass
                     continue
 
                 if msg.get("role") == "agent" and role != "agent":
@@ -392,8 +412,11 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 
                 return_exceptions=True,
             )
 
-    async def _execute_plan(plan: dict):
-        """Execute a mission plan through the sim, broadcasting each step."""
+    async def _execute_plan(plan: dict) -> bool:
+        """Execute a mission plan through the sim, broadcasting each step.
+
+        Returns True if the plan failed, False if it completed successfully.
+        """
         nonlocal state, mission, phase, latest_obs_json
 
         logger.info(f"Executing plan: {plan.get('mission_name', 'unknown')}")
@@ -411,6 +434,7 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 
         end_epoch = conops.mission_end
         maneuver_idx = 0
         step_count = 0
+        plan_failed = False
 
         def _max_coast_chunk(s) -> float:
             """Adaptive chunk: 600s near bodies, 86400s in heliocentric."""
@@ -426,8 +450,35 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 
                 dt_to_burn = (m.epoch - state.time.epoch).total_seconds()
 
                 if dt_to_burn <= 0:
-                    # Execute burn with velocity-relative direction
                     sc = state.spacecraft[0]
+
+                    # Check if burn is possible
+                    if not sc.subsystems.propulsion.can_fire:
+                        inhibit = sc.subsystems.propulsion.fire_inhibit_reason or "unknown"
+                        reason = (
+                            f"Burn inhibited: {inhibit}. "
+                            f"Required Δv: {m.magnitude_km_s*1000:.1f} m/s. "
+                            f"Fuel remaining: {sc.fuel_kg:.3f} kg / "
+                            f"{sc.mass_kg:.1f} kg total. "
+                            f"ISP: {sc.isp_s:.0f}s."
+                        )
+                        logger.error(
+                            f"BURN FAILED at step {maneuver_idx}: {reason}"
+                        )
+                        err_msg = json.dumps({
+                            "type": "plan_error",
+                            "step_index": maneuver_idx,
+                            "reason": reason,
+                        })
+                        for v in viewers:
+                            try:
+                                await v.send(err_msg)
+                            except Exception:
+                                pass
+                        plan_failed = True
+                        break
+
+                    # Execute burn with velocity-relative direction
                     direction = _resolve_direction(m.direction, sc.velocity_km_s)
                     action = AgentAction(
                         type=ActionType.BURN,
@@ -436,6 +487,16 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 
                             magnitude_km_s=m.magnitude_km_s,
                         ),
                     )
+                    # Notify viewers which step fired
+                    burn_msg = json.dumps({
+                        "type": "plan_burn",
+                        "step_index": maneuver_idx,
+                    })
+                    for v in viewers:
+                        try:
+                            await v.send(burn_msg)
+                        except Exception:
+                            pass
                     maneuver_idx += 1
                     logger.info(
                         f"BURN: {m.direction} Δv={m.magnitude_km_s*1000:.1f} m/s"
@@ -466,8 +527,32 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 
             await _broadcast_state(state)
             await asyncio.sleep(tick_interval)
 
+            # Check for terminal spacecraft status
+            sc = state.spacecraft[0]
+            if sc.status in (
+                SpacecraftStatus.CRASHED,
+                SpacecraftStatus.OUT_OF_FUEL,
+            ):
+                reason = (
+                    f"Spacecraft {sc.status.value.replace('_', ' ')}. "
+                    f"Fuel: {sc.fuel_kg:.3f} kg / {sc.mass_kg:.1f} kg. "
+                    f"T+{state.time.elapsed_s/86400:.1f} days."
+                )
+                logger.error(f"Plan aborted: {reason}")
+                err_msg = json.dumps({
+                    "type": "plan_error",
+                    "step_index": maneuver_idx,
+                    "reason": reason,
+                })
+                for v in viewers:
+                    try:
+                        await v.send(err_msg)
+                    except Exception:
+                        pass
+                plan_failed = True
+                break
+
             if step_count % 100 == 0:
-                sc = state.spacecraft[0]
                 logger.info(
                     f"Plan step {step_count} | "
                     f"T+{state.time.elapsed_s/86400:.1f}d | "
@@ -475,12 +560,17 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 
                     f"Fuel: {sc.fuel_kg:.3f} kg"
                 )
 
+        if plan_failed:
+            logger.info(f"Plan execution failed after {step_count} steps")
+            return True
+
         logger.info(f"Plan execution complete ({step_count} steps)")
         for v in viewers:
             try:
                 await v.send(json.dumps({"type": "plan_complete"}))
             except Exception:
                 pass
+        return False
 
     async def tick_loop():
         nonlocal state, mission, phase, latest_obs_json
@@ -491,19 +581,26 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 
             f"time warp {time_warp}x (1 real sec = {time_warp} sim sec)"
         )
         last_wall = _time.monotonic()
+        paused = False  # True after plan failure — stop ticking
 
         while True:
             await asyncio.sleep(tick_interval)
 
-            # Check for plan to execute
+            # Check for plan to execute (also unpauses on new plan)
             if not plan_queue.empty():
                 try:
                     plan = plan_queue.get_nowait()
-                    await _execute_plan(plan)
+                    paused = False
+                    failed = await _execute_plan(plan)
+                    if failed:
+                        paused = True
                     last_wall = _time.monotonic()
                     continue
                 except asyncio.QueueEmpty:
                     pass
+
+            if paused:
+                continue
 
             # Measure real elapsed time → sim time
             now_wall = _time.monotonic()
