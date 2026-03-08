@@ -122,6 +122,8 @@ export interface LiveSimData {
   }[];
   events: SimEvent[];
   trajectoryHistory: [number, number][]; // Trail of spacecraft positions in AU
+  planStatus: 'idle' | 'executing' | 'complete';
+  sendPlan: (plan: unknown) => void;
 }
 
 const MAX_TRAIL_POINTS = 2000;
@@ -130,6 +132,7 @@ export function useSimConnection(wsUrl: string | null = DEFAULT_WS_URL): LiveSim
   const [connected, setConnected] = useState(false);
   const [state, setState] = useState<UniverseState | null>(null);
   const [trail, setTrail] = useState<[number, number][]>([]);
+  const [planStatus, setPlanStatus] = useState<'idle' | 'executing' | 'complete'>('idle');
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -147,8 +150,23 @@ export function useSimConnection(wsUrl: string | null = DEFAULT_WS_URL): LiveSim
 
     ws.onmessage = (event) => {
       try {
-        const data: UniverseState = JSON.parse(event.data);
-        setState(data);
+        const data = JSON.parse(event.data);
+
+        // Handle server control messages
+        if (data.type === 'plan_ack') {
+          console.log('[Sim] Plan accepted by server');
+          setPlanStatus('executing');
+          setTrail([]); // Clear trail for new plan
+          return;
+        }
+        if (data.type === 'plan_complete') {
+          console.log('[Sim] Plan execution complete');
+          setPlanStatus('complete');
+          return;
+        }
+
+        // Normal UniverseState
+        setState(data as UniverseState);
 
         // Append spacecraft position to trail
         if (data.spacecraft.length > 0) {
@@ -192,6 +210,17 @@ export function useSimConnection(wsUrl: string | null = DEFAULT_WS_URL): LiveSim
     };
   }, [wsUrl]);
 
+  const sendPlan = useCallback((plan: unknown) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      console.warn('[Sim] Cannot send plan — not connected');
+      return;
+    }
+    console.log('[Sim] Sending plan to server');
+    setPlanStatus('executing');
+    ws.send(JSON.stringify({ type: 'load_plan', plan }));
+  }, []);
+
   useEffect(() => {
     connect();
     return () => {
@@ -209,6 +238,8 @@ export function useSimConnection(wsUrl: string | null = DEFAULT_WS_URL): LiveSim
       bodies: [],
       events: [],
       trajectoryHistory: [],
+      planStatus,
+      sendPlan,
     };
   }
 
@@ -244,5 +275,7 @@ export function useSimConnection(wsUrl: string | null = DEFAULT_WS_URL): LiveSim
     })),
     events: state.events,
     trajectoryHistory: trail,
+    planStatus,
+    sendPlan,
   };
 }

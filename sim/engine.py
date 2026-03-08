@@ -450,6 +450,19 @@ def step(
         dt = 60.0  # These take ~1 minute of sim time
         dm = 0.0
 
+    # --- SOI check: switch reference body if spacecraft escapes/enters ---
+    if ref_body != CelestialBody.SUN:
+        soi_radius = AstronomicalData.sphere_of_influence(ref_body)
+        r_mag = float(np.linalg.norm(r))
+        if r_mag > soi_radius:
+            # Escaped current body — convert to heliocentric frame
+            for bs in state.bodies:
+                if bs.body == ref_body:
+                    r = r + np.array(bs.position_km)
+                    v = v + np.array(bs.velocity_km_s)
+                    break
+            ref_body = CelestialBody.SUN
+
     # --- Propagate orbit if coasting ---
     if dt > 0:
         LagrangeCoefficients.mu = AstronomicalData.gravitational_parameter(ref_body)
@@ -469,6 +482,21 @@ def step(
         _compute_body_state(bs.body, new_time.epoch)
         for bs in state.bodies
     )
+
+    # --- SOI entry: switch from heliocentric to body-centered ---
+    if ref_body == CelestialBody.SUN:
+        for bs in new_bodies:
+            if bs.body == CelestialBody.SUN:
+                continue
+            body_pos = np.array(bs.position_km)
+            body_vel = np.array(bs.velocity_km_s)
+            rel_pos = r - body_pos
+            dist = float(np.linalg.norm(rel_pos))
+            if dist < bs.soi_km:
+                r = rel_pos
+                v = v - body_vel
+                ref_body = bs.body
+                break
 
     # --- Compute new orbit ---
     new_orbit = _compute_orbit_state(r, v, ref_body)

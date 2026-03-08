@@ -12,6 +12,8 @@ from datetime import timedelta
 
 import numpy as np
 
+from spacecraft_sim import CelestialBody
+
 from sim.conops import (
     CONOPS,
     ArrivalPhase,
@@ -25,8 +27,18 @@ from sim.conops import (
     TransferManeuver,
     TransferPhase,
 )
-from sim.engine import step
+from sim.engine import step as _step
 from sim.server import create_initial_state
+
+# Recording wrapper for step — captures states when _trajectory is not None
+_trajectory: list | None = None
+
+
+def step(state, action, mission, phase):
+    new_state, obs = _step(state, action, mission, phase)
+    if _trajectory is not None:
+        _trajectory.append(new_state)
+    return new_state, obs
 from sim.state import (
     ActionType,
     AgentAction,
@@ -67,6 +79,7 @@ class MissionReport:
     final_status: str
     score: float              # 0.0 to 1.0
     scoring_breakdown: dict
+    trajectory: list | None = None  # List of UniverseState if recorded
 
 
 # ---------------------------------------------------------------------------
@@ -110,16 +123,27 @@ def _execute_maneuver(
     events_log: list[str] = []
     sc = state.spacecraft[0]
 
-    # Coast to maneuver time if needed
+    # Coast to maneuver time if needed, chunked to avoid propagator overflow
     target_epoch = maneuver.date
     dt = (target_epoch - state.time.epoch).total_seconds()
     if dt > 0:
-        coast_action = AgentAction(
-            type=ActionType.COAST,
-            payload=CoastCommand(duration_s=dt),
-        )
-        state, obs = step(state, coast_action, mission, phase)
-        mission = obs.mission
+        remaining = dt
+        while remaining > 0:
+            # Use smaller steps near body SOIs (hyperbolic escape),
+            # larger steps in heliocentric cruise
+            sc = state.spacecraft[0]
+            if sc.reference_body != CelestialBody.SUN:
+                max_chunk = 600.0  # 10 min steps near bodies
+            else:
+                max_chunk = 86400.0  # 1 day in heliocentric
+            chunk = min(remaining, max_chunk)
+            coast_action = AgentAction(
+                type=ActionType.COAST,
+                payload=CoastCommand(duration_s=chunk),
+            )
+            state, obs = step(state, coast_action, mission, phase)
+            mission = obs.mission
+            remaining -= chunk
         events_log.append(f"Coasted {dt/86400:.1f} days to maneuver time")
 
     # Execute burn
@@ -294,16 +318,19 @@ def _execute_cruise(
         state, mission, events = _execute_maneuver(tcm, state, mission, phase_state)
         all_events.extend(events)
 
-    # Coast for remaining cruise duration
+    # Coast for remaining cruise duration, chunked
     elapsed_since_start = (state.time.epoch - phase_state.phase_start_time.epoch).total_seconds()
     remaining_s = phase_def.duration_days * 86400.0 - elapsed_since_start
-    if remaining_s > 0:
+    MAX_COAST_S = 86400.0
+    while remaining_s > 0:
+        chunk = min(remaining_s, MAX_COAST_S)
         action = AgentAction(
             type=ActionType.COAST,
-            payload=CoastCommand(duration_s=remaining_s),
+            payload=CoastCommand(duration_s=chunk),
         )
         state, obs = step(state, action, mission, phase_state)
         mission = obs.mission
+        remaining_s -= chunk
 
     return state, mission, PhaseResult(
         phase_name="cruise",
@@ -367,12 +394,17 @@ def _execute_primary_ops(
         available_actions=(ActionType.COAST, ActionType.DOWNLINK),
     )
 
-    action = AgentAction(
-        type=ActionType.COAST,
-        payload=CoastCommand(duration_s=phase_def.duration_days * 86400.0),
-    )
-    state, obs = step(state, action, mission, phase_state)
-    mission = obs.mission
+    remaining_s = phase_def.duration_days * 86400.0
+    MAX_COAST_S = 86400.0
+    while remaining_s > 0:
+        chunk = min(remaining_s, MAX_COAST_S)
+        action = AgentAction(
+            type=ActionType.COAST,
+            payload=CoastCommand(duration_s=chunk),
+        )
+        state, obs = step(state, action, mission, phase_state)
+        mission = obs.mission
+        remaining_s -= chunk
 
     return state, mission, PhaseResult(
         phase_name="primary_ops",
@@ -429,8 +461,21 @@ def _execute_end_of_life(
 # Main executor
 # ---------------------------------------------------------------------------
 
-def execute_conops(conops: CONOPS) -> MissionReport:
-    """Execute a complete CONOPS through the sim and produce a mission report."""
+def execute_conops(
+    conops: CONOPS,
+    record_trajectory: bool = False,
+) -> MissionReport:
+    """Execute a complete CONOPS through the sim and produce a mission report.
+
+    If record_trajectory=True, the report will include a 'trajectory' field
+    with a list of UniverseState snapshots at each step.
+    """
+    global _trajectory
+    if record_trajectory:
+        _trajectory = []
+    else:
+        _trajectory = None
+
     state, mission, _ = create_initial_state(
         epoch=conops.mission_start,
         altitude_km=conops.launch.target_injection_orbit.altitude_km,
@@ -474,6 +519,9 @@ def execute_conops(conops: CONOPS) -> MissionReport:
     # Score the mission
     score, breakdown = _score_mission(conops, mission, state, phase_results)
 
+    recorded = list(_trajectory) if _trajectory is not None else None
+    _trajectory = None
+
     return MissionReport(
         conops_name=conops.mission_name,
         phases=phase_results,
@@ -483,6 +531,7 @@ def execute_conops(conops: CONOPS) -> MissionReport:
         final_status=state.spacecraft[0].status.value,
         score=score,
         scoring_breakdown=breakdown,
+        trajectory=recorded,
     )
 
 

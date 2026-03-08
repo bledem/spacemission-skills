@@ -16,7 +16,7 @@ import asyncio
 import json
 import logging
 import math
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from enum import Enum
 
@@ -27,6 +27,7 @@ from spacecraft_sim import (
     CelestialBody,
 )
 
+from sim.bridge import convert_plan_to_conops
 from sim.engine import TRACKED_BODIES, _compute_body_state, _compute_orbit_state, step
 from sim.state import (
     ADCSMode,
@@ -274,6 +275,46 @@ def parse_agent_action(raw: str) -> AgentAction | None:
     return AgentAction(type=action_type, payload=payload)
 
 
+@dataclass
+class _PlannedManeuver:
+    """A burn to execute at a specific epoch during plan replay."""
+    epoch: datetime
+    direction: str  # "prograde", "retrograde", etc.
+    magnitude_km_s: float
+
+
+def _conops_to_plan(conops) -> list[_PlannedManeuver]:
+    """Extract the ordered list of maneuvers from a CONOPS."""
+    maneuvers: list[_PlannedManeuver] = []
+    for m in conops.transfer.maneuvers:
+        maneuvers.append(_PlannedManeuver(
+            epoch=m.date, direction=m.direction, magnitude_km_s=m.delta_v_km_s,
+        ))
+    if conops.arrival.orbit_insertion_maneuver:
+        m = conops.arrival.orbit_insertion_maneuver
+        maneuvers.append(_PlannedManeuver(
+            epoch=m.date, direction=m.direction, magnitude_km_s=m.delta_v_km_s,
+        ))
+    return maneuvers
+
+
+def _resolve_direction(
+    direction: str, velocity: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    """Convert direction string to unit vector relative to current velocity."""
+    vx, vy, vz = velocity
+    v_mag = math.sqrt(vx**2 + vy**2 + vz**2)
+    if v_mag == 0:
+        return (1.0, 0.0, 0.0)
+    pro = (vx / v_mag, vy / v_mag, vz / v_mag)
+    d = direction.lower()
+    if "retrograde" in d:
+        return (-pro[0], -pro[1], -pro[2])
+    if "normal" in d:
+        return (0.0, 0.0, 1.0)
+    return pro  # prograde default
+
+
 async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 1.0):
     """Run the sim server. Pushes state to all connected viewers.
 
@@ -293,6 +334,7 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 
     viewers: set = set()
     agents: set = set()
     action_queue: asyncio.Queue[AgentAction] = asyncio.Queue()
+    plan_queue: asyncio.Queue[dict] = asyncio.Queue()
     tick_interval = 1.0 / tick_hz
 
     async def handler(ws):
@@ -311,6 +353,13 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 
                 try:
                     msg = json.loads(raw)
                 except json.JSONDecodeError:
+                    continue
+
+                # Load mission plan
+                if msg.get("type") == "load_plan" and "plan" in msg:
+                    logger.info("Received mission plan from viewer")
+                    await plan_queue.put(msg["plan"])
+                    await ws.send(json.dumps({"type": "plan_ack", "status": "ok"}))
                     continue
 
                 if msg.get("role") == "agent" and role != "agent":
@@ -334,6 +383,105 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 
             agents.discard(ws)
             logger.info(f"Client disconnected ({len(viewers)} viewers, {len(agents)} agents)")
 
+    async def _broadcast_state(s):
+        """Push state to all viewers."""
+        state_msg = state_to_json(s)
+        if viewers:
+            await asyncio.gather(
+                *(v.send(state_msg) for v in viewers),
+                return_exceptions=True,
+            )
+
+    async def _execute_plan(plan: dict):
+        """Execute a mission plan through the sim, broadcasting each step."""
+        nonlocal state, mission, phase, latest_obs_json
+
+        logger.info(f"Executing plan: {plan.get('mission_name', 'unknown')}")
+        conops = convert_plan_to_conops(plan)
+
+        # Re-initialize state from the plan's epoch/orbit
+        state, mission, phase = create_initial_state(
+            epoch=conops.mission_start,
+            altitude_km=conops.launch.target_injection_orbit.altitude_km,
+            inclination_deg=conops.launch.target_injection_orbit.inclination_deg,
+        )
+        await _broadcast_state(state)
+
+        maneuvers = _conops_to_plan(conops)
+        end_epoch = conops.mission_end
+        maneuver_idx = 0
+        step_count = 0
+
+        def _max_coast_chunk(s) -> float:
+            """Adaptive chunk: 600s near bodies, 86400s in heliocentric."""
+            sc = s.spacecraft[0]
+            if sc.reference_body != CelestialBody.SUN:
+                return 600.0
+            return 86400.0
+
+        while state.time.epoch < end_epoch:
+            # Check if next maneuver is due
+            if maneuver_idx < len(maneuvers):
+                m = maneuvers[maneuver_idx]
+                dt_to_burn = (m.epoch - state.time.epoch).total_seconds()
+
+                if dt_to_burn <= 0:
+                    # Execute burn with velocity-relative direction
+                    sc = state.spacecraft[0]
+                    direction = _resolve_direction(m.direction, sc.velocity_km_s)
+                    action = AgentAction(
+                        type=ActionType.BURN,
+                        payload=BurnCommand(
+                            direction=direction,
+                            magnitude_km_s=m.magnitude_km_s,
+                        ),
+                    )
+                    maneuver_idx += 1
+                    logger.info(
+                        f"BURN: {m.direction} Δv={m.magnitude_km_s*1000:.1f} m/s"
+                    )
+                else:
+                    # Coast toward next burn, chunked adaptively
+                    chunk = min(dt_to_burn, _max_coast_chunk(state))
+                    action = AgentAction(
+                        type=ActionType.COAST,
+                        payload=CoastCommand(duration_s=chunk),
+                    )
+            else:
+                # All burns done, coast to end
+                dt_to_end = (end_epoch - state.time.epoch).total_seconds()
+                chunk = min(dt_to_end, _max_coast_chunk(state))
+                if chunk <= 0:
+                    break
+                action = AgentAction(
+                    type=ActionType.COAST,
+                    payload=CoastCommand(duration_s=chunk),
+                )
+
+            state, obs = step(state, action, mission, phase)
+            mission = obs.mission
+            phase = obs.phase
+            step_count += 1
+
+            await _broadcast_state(state)
+            await asyncio.sleep(tick_interval)
+
+            if step_count % 100 == 0:
+                sc = state.spacecraft[0]
+                logger.info(
+                    f"Plan step {step_count} | "
+                    f"T+{state.time.elapsed_s/86400:.1f}d | "
+                    f"Ref: {sc.reference_body.name} | "
+                    f"Fuel: {sc.fuel_kg:.3f} kg"
+                )
+
+        logger.info(f"Plan execution complete ({step_count} steps)")
+        for v in viewers:
+            try:
+                await v.send(json.dumps({"type": "plan_complete"}))
+            except Exception:
+                pass
+
     async def tick_loop():
         nonlocal state, mission, phase, latest_obs_json
         import time as _time
@@ -346,6 +494,16 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 
 
         while True:
             await asyncio.sleep(tick_interval)
+
+            # Check for plan to execute
+            if not plan_queue.empty():
+                try:
+                    plan = plan_queue.get_nowait()
+                    await _execute_plan(plan)
+                    last_wall = _time.monotonic()
+                    continue
+                except asyncio.QueueEmpty:
+                    pass
 
             # Measure real elapsed time → sim time
             now_wall = _time.monotonic()
@@ -372,12 +530,7 @@ async def run_server(port: int = 8765, tick_hz: float = 1.0, time_warp: float = 
             phase = obs.phase
 
             # Broadcast UniverseState to viewers
-            state_msg = state_to_json(state)
-            if viewers:
-                await asyncio.gather(
-                    *(v.send(state_msg) for v in viewers),
-                    return_exceptions=True,
-                )
+            await _broadcast_state(state)
 
             # Send Observation to agents (richer: includes mission/phase)
             obs_msg = observation_to_json(obs)

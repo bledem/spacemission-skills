@@ -158,7 +158,7 @@ cat jobs/my-run/task__*/verifier/test-stdout.txt
 You can verify the full oracle → verifier → reward pipeline without Harbor:
 
 ```bash
-# 1. Build the environment image
+# 1. Build the environment image (context must be task/environment/)
 docker build -t spacecraft-test -f task/environment/Dockerfile task/environment/
 
 # 2. Run oracle + verifier end-to-end

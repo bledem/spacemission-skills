@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Scoreboard } from './components/Scoreboard';
 import { DeltaVBudget } from './components/DeltaVBudget';
 import { SolarSystemView } from './components/SolarSystemView';
@@ -68,8 +68,39 @@ function App() {
     setIsPlaying((prev) => !prev);
   }, []);
 
+  // File input ref for plan loader
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleLoadPlan = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const plan = JSON.parse(ev.target?.result as string);
+        sim.sendPlan(plan);
+      } catch (err) {
+        console.error('Failed to parse plan JSON:', err);
+      }
+    };
+    reader.readAsText(file);
+    // Reset so the same file can be loaded again
+    e.target.value = '';
+  }, [sim]);
+
   // --- Live sim mode ---
   if (isLiveMode) {
+    const planLabel = sim.planStatus === 'executing' ? 'EXECUTING...'
+      : sim.planStatus === 'complete' ? 'COMPLETE'
+      : 'Load Plan';
+    const planColor = sim.planStatus === 'executing' ? 'bg-yellow-600 hover:bg-yellow-500'
+      : sim.planStatus === 'complete' ? 'bg-green-700 hover:bg-green-600'
+      : 'bg-blue-600 hover:bg-blue-500';
+
     return (
       <div className="min-h-screen bg-space-bg text-white p-4">
         <header className="mb-4 flex items-center gap-3">
@@ -83,6 +114,35 @@ function App() {
           {/* Left sidebar — telemetry */}
           <div className="lg:col-span-1 space-y-4">
             <Telemetry sim={sim} />
+
+            {/* Plan loader */}
+            <div className="bg-space-bg/80 backdrop-blur-sm border border-white/10 rounded-lg p-4">
+              <h3 className="text-sm font-semibold text-white/70 mb-2">Mission Plan</h3>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+              <button
+                onClick={handleLoadPlan}
+                disabled={!sim.connected || sim.planStatus === 'executing'}
+                className={`w-full px-3 py-2 rounded text-sm font-mono text-white ${planColor} disabled:opacity-50 disabled:cursor-not-allowed transition-colors`}
+              >
+                {planLabel}
+              </button>
+              {sim.planStatus === 'executing' && (
+                <p className="text-xs text-yellow-400/70 mt-2 font-mono">
+                  Executing mission plan...
+                </p>
+              )}
+              {sim.planStatus === 'complete' && (
+                <p className="text-xs text-green-400/70 mt-2 font-mono">
+                  Plan execution complete
+                </p>
+              )}
+            </div>
 
             {/* View controls */}
             <div className="bg-space-bg/80 backdrop-blur-sm border border-white/10 rounded-lg p-4">
